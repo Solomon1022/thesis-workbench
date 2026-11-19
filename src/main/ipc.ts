@@ -3,10 +3,11 @@ import type { ThesisDB } from "./db";
 import type { SettingsService } from "./settings-service";
 import type { LiteratureService, LiteratureInput } from "./literature-service";
 import type { Stage4Service } from "./stage4-service";
+import type { WritingService } from "./writing-service";
 import type { ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
 import type { ProjectInput, StageStatus } from "../shared/types";
 
-export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service): void {
+export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService): void {
   ipcMain.handle("runtime", () => ({ platform: process.platform, dbPath: db.path }));
   ipcMain.handle("project:list", () => db.listProjects());
   ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject(input));
@@ -64,6 +65,10 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("stage4:replaceHypotheses", (_e, projectId: string, cards: unknown) => stage4.replaceHypotheses(projectId, cards as Parameters<Stage4Service["replaceHypotheses"]>[1]));
   ipcMain.handle("stage4:listHypotheses", (_e, projectId: string) => stage4.listHypotheses(projectId));
   ipcMain.handle("stage4:deleteHypothesis", (_e, id: string) => stage4.deleteHypothesis(id));
+
+  // 写作管线（接地文献库的 RAG）
+  ipcMain.handle("writing:generate", (_e, projectId: string, instruction: string, opts: { query?: string; topK?: number }) =>
+    writing.generate(projectId, instruction, opts ?? {}));
 
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

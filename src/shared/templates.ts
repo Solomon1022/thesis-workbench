@@ -33,6 +33,9 @@ const GENERIC_FIELDS: Record<string, FieldDef[]> = {
   ],
   instruments: [{ key: "tool_plan", label: "工具准备计划", kind: "textarea" }],
   data: [{ key: "data_record", label: "资料/实验记录", kind: "textarea", placeholder: "保留原始版本、来源、条件与单位" }],
+  writing: [
+    { key: "draft", label: "草稿与正文", kind: "textarea", placeholder: "AI 写作接地文献库生成；事实句带 [@ref_N] 引用，缺口进缺口清单" },
+  ],
 };
 
 export const METHOD_TEMPLATES: Record<string, MethodTemplate> = {
@@ -69,6 +72,9 @@ export const METHOD_TEMPLATES: Record<string, MethodTemplate> = {
         { key: "measurement", label: "测量时间与单位", kind: "textarea" },
         { key: "raw_files", label: "原始文件引用", kind: "textarea", placeholder: "原始文件路径/编号；原始文件不被覆盖" },
         { key: "deviations", label: "偏离方案说明", kind: "textarea" },
+      ],
+      writing: [
+        { key: "draft", label: "草稿与正文", kind: "textarea", placeholder: "AI 写作接地文献库生成；事实句带 [@ref_N] 引用，缺口进缺口清单" },
       ],
     },
   },
@@ -107,6 +113,9 @@ export const METHOD_TEMPLATES: Record<string, MethodTemplate> = {
         { key: "run_logs", label: "运行日志与硬件信息", kind: "textarea" },
         { key: "baseline_results", label: "基线结果（真实运行后填写）", kind: "textarea", placeholder: "未实际运行不得填写性能数字" },
       ],
+      writing: [
+        { key: "draft", label: "草稿与正文", kind: "textarea", placeholder: "AI 写作接地文献库生成；事实句带 [@ref_N] 引用，缺口进缺口清单" },
+      ],
     },
   },
   questionnaire: {
@@ -140,6 +149,9 @@ export const METHOD_TEMPLATES: Record<string, MethodTemplate> = {
         { key: "filter_rules", label: "筛选规则", kind: "textarea" },
         { key: "data_files", label: "数据文件", kind: "textarea" },
         { key: "sample_stats", label: "样本量与有效率", kind: "textarea" },
+      ],
+      writing: [
+        { key: "draft", label: "草稿与正文", kind: "textarea", placeholder: "AI 写作接地文献库生成；事实句带 [@ref_N] 引用，缺口进缺口清单" },
       ],
     },
   },

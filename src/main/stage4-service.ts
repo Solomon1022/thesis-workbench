@@ -4,7 +4,7 @@ import { chat } from "./model-service";
 import { fieldsFor, METHOD_TEMPLATES } from "../shared/templates";
 import type { LiteratureItem } from "../shared/literature";
 
-/** 从模型输出中容错提取 JSON（支持代码块包裹与前后缀说明文字） */
+/** 从模型输出中容错提取 JSON（支持代码块包裹、前后缀说明文字与截断容错） */
 export function extractJson(text: string): unknown | null {
   const cleaned = text.replace(/`{3}(?:json)?/gi, "").trim();
   try { return JSON.parse(cleaned); } catch { /* 继续尝试提取 */ }

@@ -194,3 +194,12 @@ body {
 .hypo-card { border: 1px dashed var(--border); border-radius: 8px; padding: 10px; }
 .hypo-num { max-width: 90px; }
 .proposal-sections { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+
+/* ---- 写作管线 ---- */
+.write-result { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.write-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.write-section { border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.write-section h3 { margin: 0 0 6px; font-size: 14px; }
+.write-content { white-space: pre-wrap; line-height: 1.7; font-size: 14px; }
+.cite { margin: 0 2px; }
+.gap-row { border-bottom: 1px dashed var(--border); padding: 6px 0; font-size: 13px; }

@@ -5,6 +5,7 @@ import { fieldsFor, METHOD_TEMPLATES } from "../../shared/templates";
 import { STATUS_LABEL } from "./StageNav";
 import { LiteraturePanel } from "./LiteraturePanel";
 import { DesignAssist, ProposalPanel, TopicPanel } from "./Stage4Panels";
+import { WritingPanel } from "./WritingPanel";
 
 export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
   detail: ProjectDetail;
@@ -212,6 +213,16 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
       )}
 
       {stageKey === "proposal" && <ProposalPanel detail={detail} />}
+
+      {stageKey === "writing" && (
+        <WritingPanel
+          detail={detail}
+          onSaveDraft={(content) => {
+            setValues((prev) => ({ ...prev, draft: content }));
+            sendValue("draft", content);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ export interface ChatRequest {
   network: NetworkConfig;
   messages: Array<{ role: string; content: string }>;
   maxTokens: number;
+  temperature?: number;
   signal?: AbortSignal;
 }
 
@@ -64,7 +65,7 @@ export async function chat(req: ChatRequest): Promise<string> {
   const messages = req.messages.map((m) => ({ role: m.role, content: m.content }));
   const body = req.profile.apiStyle === "anthropic"
     ? JSON.stringify({ model: req.profile.model, max_tokens: req.maxTokens, messages })
-    : JSON.stringify({ model: req.profile.model, max_tokens: req.maxTokens, messages });
+    : JSON.stringify({ model: req.profile.model, max_tokens: req.maxTokens, ...(req.temperature !== undefined ? { temperature: req.temperature } : {}), messages });
   const response = await fetch(chatUrl(req.profile), {
     method: "POST",
     headers: authHeaders(req.profile, req.apiKey),

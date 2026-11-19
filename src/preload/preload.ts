@@ -55,6 +55,8 @@ const api = {
   stage4ReplaceHypotheses: (projectId: string, cards: unknown) => ipcRenderer.invoke("stage4:replaceHypotheses", projectId, cards),
   stage4ListHypotheses: (projectId: string) => ipcRenderer.invoke("stage4:listHypotheses", projectId),
   stage4DeleteHypothesis: (id: string) => ipcRenderer.invoke("stage4:deleteHypothesis", id),
+  writingGenerate: (projectId: string, instruction: string, opts?: { query?: string; topK?: number }) =>
+    ipcRenderer.invoke("writing:generate", projectId, instruction, opts),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);

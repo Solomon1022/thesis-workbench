@@ -52,6 +52,17 @@ declare global {
       stage4ReplaceHypotheses(projectId: string, cards: unknown): Promise<void>;
       stage4ListHypotheses(projectId: string): Promise<Array<{ id: string; number: string; statement: string; iv: string; dv: string; basis: string }>>;
       stage4DeleteHypothesis(id: string): Promise<void>;
+      writingGenerate(projectId: string, instruction: string, opts?: { query?: string; topK?: number }): Promise<{
+        stage: string;
+        content: string;
+        claims: Array<{ statement: string; source_ids: string[]; status: string }>;
+        gaps: Array<{ claim: string; missing: string; action: string }>;
+        nextSteps: string[];
+        materials: Array<{ refId: string; title: string; url: string; kind: string }>;
+        unlistedRefs: string[];
+        provider?: string;
+        model?: string;
+      }>;
     };
   }
 }
