@@ -81,6 +81,12 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("data:runs", (_e, projectId: string) => dataService.listRuns(projectId));
   ipcMain.handle("data:explain", (_e, runId: string) => dataService.explain(runId));
 
+  // 阶段 6：审阅意见
+  ipcMain.handle("review:list", (_e, projectId: string) => db.listReviews(projectId));
+  ipcMain.handle("review:create", (_e, input: { projectId: string; stageKey: string; section: string; source: string; content: string; suggestion: string }) => db.insertReview(input));
+  ipcMain.handle("review:update", (_e, id: string, patch: { stageKey?: string; section?: string; source?: string; content?: string; suggestion?: string; status?: string; resolution?: string }) => db.updateReview(id, patch));
+  ipcMain.handle("review:delete", (_e, id: string) => db.deleteReview(id));
+
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {
     if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;

@@ -70,6 +70,10 @@ declare global {
       dataAnalyze(projectId: string, dataFileId: string, method: string, params: unknown): Promise<{ runId: string; method: string; status: string; message: string; formula: string; params: unknown; results: unknown }>;
       dataRuns(projectId: string): Promise<Array<{ id: string; dataFileId: string; method: string; params: unknown; results: unknown; formula: string; status: string; message: string; createdAt: number }>>;
       dataExplain(runId: string): Promise<{ ok: boolean; message: string; explanation?: string; provider?: string; model?: string }>;
+      reviewList(projectId: string): Promise<Array<{ id: string; stageKey: string; section: string; source: string; content: string; suggestion: string; status: string; resolution: string; createdAt: number; updatedAt: number }>>;
+      reviewCreate(input: { projectId: string; stageKey: string; section: string; source: string; content: string; suggestion: string }): Promise<string>;
+      reviewUpdate(id: string, patch: { stageKey?: string; section?: string; source?: string; content?: string; suggestion?: string; status?: string; resolution?: string }): Promise<void>;
+      reviewDelete(id: string): Promise<void>;
     };
   }
 }

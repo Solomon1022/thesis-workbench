@@ -64,6 +64,10 @@ const api = {
   dataAnalyze: (projectId: string, dataFileId: string, method: string, params: unknown) => ipcRenderer.invoke("data:analyze", projectId, dataFileId, method, params),
   dataRuns: (projectId: string) => ipcRenderer.invoke("data:runs", projectId),
   dataExplain: (runId: string) => ipcRenderer.invoke("data:explain", runId),
+  reviewList: (projectId: string) => ipcRenderer.invoke("review:list", projectId),
+  reviewCreate: (input: { projectId: string; stageKey: string; section: string; source: string; content: string; suggestion: string }) => ipcRenderer.invoke("review:create", input),
+  reviewUpdate: (id: string, patch: { stageKey?: string; section?: string; source?: string; content?: string; suggestion?: string; status?: string; resolution?: string }) => ipcRenderer.invoke("review:update", id, patch),
+  reviewDelete: (id: string) => ipcRenderer.invoke("review:delete", id),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);

@@ -7,6 +7,7 @@ import { LiteraturePanel } from "./LiteraturePanel";
 import { DesignAssist, ProposalPanel, TopicPanel } from "./Stage4Panels";
 import { WritingPanel } from "./WritingPanel";
 import { AnalysisPanel, DataPanel } from "./DataPanels";
+import { ReviewPanel } from "./ReviewPanel";
 
 export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
   detail: ProjectDetail;
@@ -228,6 +229,8 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
       {stageKey === "data" && <DataPanel detail={detail} />}
 
       {stageKey === "analysis" && <AnalysisPanel detail={detail} />}
+
+      {stageKey === "revision" && <ReviewPanel detail={detail} />}
     </div>
   );
 }

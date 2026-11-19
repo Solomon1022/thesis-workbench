@@ -210,3 +210,5 @@ body {
 .data-table th { background: #f6f8fb; }
 .chip-on { border-color: var(--primary); background: #e8effb; }
 .data-params { font-size: 12px; word-break: break-all; }
+
+.review-content { font-size: 14px; line-height: 1.6; margin: 4px 0; }

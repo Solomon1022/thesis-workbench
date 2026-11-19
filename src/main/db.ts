@@ -220,6 +220,21 @@ export class ThesisDB {
       );
       CREATE INDEX IF NOT EXISTS idx_df_project ON data_files(project_id);
       CREATE INDEX IF NOT EXISTS idx_ar_project ON analysis_runs(project_id);
+
+      CREATE TABLE IF NOT EXISTS reviews (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        stage_key TEXT NOT NULL DEFAULT '',
+        section TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL DEFAULT '',
+        suggestion TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        resolution TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_rev_project ON reviews(project_id);
     `);
   }
 
@@ -695,6 +710,52 @@ export class ThesisDB {
 
   deleteAnalysisRun(id: string): void {
     this.db.prepare("DELETE FROM analysis_runs WHERE id = ?").run(id);
+  }
+
+  // ===== 阶段 6：审阅意见 =====
+
+  insertReview(input: { projectId: string; stageKey: string; section: string; source: string; content: string; suggestion: string }): string {
+    const id = randomUUID();
+    const now = Date.now();
+    this.db.prepare("INSERT INTO reviews (id, project_id, stage_key, section, source, content, suggestion, status, resolution, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?)")
+      .run(id, input.projectId, input.stageKey, input.section, input.source, input.content, input.suggestion, now, now);
+    return id;
+  }
+
+  listReviews(projectId: string): Array<{ id: string; stageKey: string; section: string; source: string; content: string; suggestion: string; status: string; resolution: string; createdAt: number; updatedAt: number }> {
+    const rows = this.db.prepare("SELECT * FROM reviews WHERE project_id = ? ORDER BY created_at DESC").all(projectId) as unknown as Row[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      stageKey: String(r.stage_key ?? ""),
+      section: String(r.section ?? ""),
+      source: String(r.source ?? ""),
+      content: String(r.content ?? ""),
+      suggestion: String(r.suggestion ?? ""),
+      status: String(r.status ?? "pending"),
+      resolution: String(r.resolution ?? ""),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at),
+    }));
+  }
+
+  updateReview(id: string, patch: { stageKey?: string; section?: string; source?: string; content?: string; suggestion?: string; status?: string; resolution?: string }): void {
+    const current = this.db.prepare("SELECT * FROM reviews WHERE id = ?").get(id) as unknown as Row | undefined;
+    if (!current) return;
+    const next = {
+      stageKey: patch.stageKey ?? String(current.stage_key ?? ""),
+      section: patch.section ?? String(current.section ?? ""),
+      source: patch.source ?? String(current.source ?? ""),
+      content: patch.content ?? String(current.content ?? ""),
+      suggestion: patch.suggestion ?? String(current.suggestion ?? ""),
+      status: patch.status ?? String(current.status ?? "pending"),
+      resolution: patch.resolution ?? String(current.resolution ?? ""),
+    };
+    this.db.prepare("UPDATE reviews SET stage_key=?, section=?, source=?, content=?, suggestion=?, status=?, resolution=?, updated_at=? WHERE id=?")
+      .run(next.stageKey, next.section, next.source, next.content, next.suggestion, next.status, next.resolution, Date.now(), id);
+  }
+
+  deleteReview(id: string): void {
+    this.db.prepare("DELETE FROM reviews WHERE id = ?").run(id);
   }
 
 }
