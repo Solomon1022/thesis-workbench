@@ -18,9 +18,11 @@ declare global {
         secretStatus: Record<string, boolean>;
         roles: Array<{ roleKey: RoleKey; providerKey: string; model: string }>;
         encryptionAvailable: boolean;
+        contactEmail: string;
       }>;
       settingsSaveProfile(profile: ModelProfile, network: NetworkConfig): Promise<unknown>;
       settingsSaveSecret(providerKey: string, apiKey: string): Promise<boolean>;
+      settingsSaveContactEmail(email: string): Promise<unknown>;
       settingsDeleteSecret(providerKey: string): Promise<void>;
       settingsSaveRole(roleKey: RoleKey, providerKey: string, model: string): Promise<unknown>;
       settingsTestConnection(testId: string, providerKey: string): Promise<ConnectionLayerResult[]>;

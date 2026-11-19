@@ -24,6 +24,10 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
     return settings.getSettings();
   });
   ipcMain.handle("settings:saveSecret", (_e, providerKey: string, apiKey: string) => settings.saveSecret(providerKey, apiKey));
+  ipcMain.handle("settings:saveContactEmail", (_e, email: string) => {
+    settings.saveContactEmail(email);
+    return settings.getSettings();
+  });
   ipcMain.handle("settings:deleteSecret", (_e, providerKey: string) => settings.deleteSecret(providerKey));
   ipcMain.handle("settings:saveRole", (_e, roleKey: RoleKey, providerKey: string, model: string) => {
     settings.saveRole(roleKey, providerKey, model);

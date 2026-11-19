@@ -37,7 +37,7 @@ export class LiteratureService {
     const q = query.trim();
     let outcome: SearchOutcome;
     try {
-      if (source === "crossref") outcome = await crossrefSearch(q, this.signalWithTimeout());
+      if (source === "crossref") outcome = await crossrefSearch(q, this.settings.getContactEmail(), this.signalWithTimeout());
       else if (source === "arxiv") outcome = await arxivSearch(q, this.signalWithTimeout());
       else if (source === "pubmed") outcome = await pubmedSearch(q, this.signalWithTimeout());
       else throw new Error("未知检索来源：" + source);

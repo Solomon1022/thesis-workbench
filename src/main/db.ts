@@ -153,6 +153,12 @@ export class ThesisDB {
         created_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_slog_project ON search_log(project_id);
+
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      );
     `);
   }
 
@@ -418,6 +424,20 @@ export class ThesisDB {
       message: String(r.message ?? ""),
       createdAt: Number(r.created_at),
     }));
+  }
+
+  // ===== 应用级设置（键值） =====
+
+  getAppSetting(key: string): string {
+    const row = this.db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as unknown as Row | undefined;
+    return row ? String(row.value ?? "") : "";
+  }
+
+  setAppSetting(key: string, value: string): void {
+    this.db.prepare(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+    ).run(key, value, Date.now());
   }
 
 }

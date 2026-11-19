@@ -18,6 +18,7 @@ const api = {
   settingsGet: () => ipcRenderer.invoke("settings:get"),
   settingsSaveProfile: (profile: ModelProfile, network: NetworkConfig) => ipcRenderer.invoke("settings:saveProfile", profile, network),
   settingsSaveSecret: (providerKey: string, apiKey: string) => ipcRenderer.invoke("settings:saveSecret", providerKey, apiKey),
+  settingsSaveContactEmail: (email: string) => ipcRenderer.invoke("settings:saveContactEmail", email),
   settingsDeleteSecret: (providerKey: string) => ipcRenderer.invoke("settings:deleteSecret", providerKey),
   settingsSaveRole: (roleKey: RoleKey, providerKey: string, model: string) => ipcRenderer.invoke("settings:saveRole", roleKey, providerKey, model),
   settingsTestConnection: (testId: string, providerKey: string): Promise<ConnectionLayerResult[]> =>

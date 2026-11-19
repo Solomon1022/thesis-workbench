@@ -9,6 +9,7 @@ export interface SettingsSnapshot {
   secretStatus: Record<string, boolean>;
   roles: RoleAssignment[];
   encryptionAvailable: boolean;
+  contactEmail: string;
 }
 
 /** 模型与角色设置服务。密钥经 safeStorage（系统加密）存储，渲染层永远拿不到明文。 */
@@ -25,6 +26,7 @@ export class SettingsService {
       secretStatus: this.db.secretStatus(),
       roles: this.db.listRoleAssignments(),
       encryptionAvailable: safeStorage.isEncryptionAvailable(),
+      contactEmail: this.db.getAppSetting("contact_email"),
     };
   }
 
@@ -49,6 +51,14 @@ export class SettingsService {
 
   deleteSecret(providerKey: string): void {
     this.db.deleteModelSecret(providerKey);
+  }
+
+  saveContactEmail(email: string): void {
+    this.db.setAppSetting("contact_email", email.trim());
+  }
+
+  getContactEmail(): string {
+    return this.db.getAppSetting("contact_email");
   }
 
   saveRole(roleKey: RoleKey, providerKey: string, model: string): void {

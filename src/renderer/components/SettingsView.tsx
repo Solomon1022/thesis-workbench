@@ -29,6 +29,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
   const [testing, setTesting] = useState(false);
   const [testId, setTestId] = useState("");
   const [testResults, setTestResults] = useState<ConnectionLayerResult[] | null>(null);
+  const [contactEmail, setContactEmail] = useState("");
 
   const refresh = useCallback(async () => {
     const a = api();
@@ -36,6 +37,7 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     try {
       const snap = await a.settingsGet();
       setSnapshot(snap);
+      setContactEmail(snap.contactEmail ?? "");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -104,6 +106,19 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     const a = api();
     if (!a) return;
     void a.settingsCancelTest(testId);
+  };
+
+  const saveEmail = async () => {
+    const a = api();
+    if (!a) return;
+    setError("");
+    try {
+      await a.settingsSaveContactEmail(contactEmail);
+      await refresh();
+      setMessage("联系邮箱已保存（用于 Crossref 检索礼貌池配额）");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const saveRole = async (roleKey: RoleKey, providerKey: string, model: string) => {
@@ -267,7 +282,16 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       {tab === "search" && (
         <section className="card">
           <h2 className="card-title">搜索服务</h2>
-          <p className="muted">Tavily / Brave 等检索服务的配置与真实学术源接入将在阶段 3 完成。当前阶段未接入，不做演示。</p>
+          <p className="muted">Tavily / Brave 等检索服务将在后续阶段接入。</p>
+          <div className="field">
+            <label htmlFor="sp-email">联系邮箱（Crossref 礼貌池）</label>
+            <input id="sp-email" className="input" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="Crossref 要求真实邮箱以获得正常检索配额；示例域名会被拒绝（HTTP 429）" />
+          </div>
+          <div className="settings-actions">
+            <button className="btn btn-primary" onClick={() => void saveEmail()}>保存邮箱</button>
+          </div>
+          {message && <p className="banner banner-info">{message}</p>}
+          {error && <p className="banner banner-error">{error}</p>}
         </section>
       )}
     </div>
