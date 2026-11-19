@@ -1,14 +1,27 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectDetail, StageStatus } from "../../shared/types";
 import { STAGES } from "../../shared/stages";
 import { fieldsFor, METHOD_TEMPLATES } from "../../shared/templates";
 import { STATUS_LABEL } from "./StageNav";
 import { LiteraturePanel } from "./LiteraturePanel";
-import { DesignAssist, ProposalPanel, TopicPanel } from "./Stage4Panels";
+import { ProposalPanel, VersionSection } from "./Stage4Panels";
 import { WritingPanel } from "./WritingPanel";
 import { AnalysisPanel, DataPanel } from "./DataPanels";
 import { ReviewPanel } from "./ReviewPanel";
 import { ExportPanel } from "./ExportPanel";
+import { AiAssistant, StageGuide, VariableEditor, type AiTarget } from "./AiAssistant";
+
+const api = () => window.thesisWorkbench;
+
+interface HypothesisCard {
+  number: string;
+  statement: string;
+  iv: string;
+  dv: string;
+  basis: string;
+}
+
+const AI_STAGES = ["topic", "design", "writing", "proposal"];
 
 export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjectRestored }: {
   detail: ProjectDetail;
@@ -35,7 +48,10 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
   const stageRef = useRef(stageKey);
   const projectRef = useRef(detail.project.id);
 
-  // 阶段或项目切换时，从最新内容初始化，并丢弃旧请求的界面影响
+  // 假设卡片（设计阶段）
+  const [hypotheses, setHypotheses] = useState<HypothesisCard[]>([]);
+  const [savedDirections, setSavedDirections] = useState<Array<{ id: string; question: string; dataPath: string; feasibility: string; limitations: string }>>([]);
+
   useEffect(() => {
     stageRef.current = stageKey;
     projectRef.current = detail.project.id;
@@ -49,7 +65,22 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stageKey, detail.project.id]);
 
-  // 关闭保护：有未完成写入或保存失败时提示，避免内容丢失
+  const loadStageExtras = useCallback(async () => {
+    const a = api();
+    if (!a) return;
+    if (stageKey === "design") {
+      try { setHypotheses(await a.stage4ListHypotheses(detail.project.id)); } catch { /* ignore */ }
+    }
+    if (stageKey === "topic") {
+      try {
+        const list = await a.stage4ListDirections(detail.project.id);
+        setSavedDirections(list.map((d) => ({ id: d.id, question: d.question, dataPath: d.dataPath, feasibility: d.feasibility, limitations: d.limitations })));
+      } catch { /* ignore */ }
+    }
+  }, [stageKey, detail.project.id]);
+
+  useEffect(() => { void loadStageExtras(); }, [loadStageExtras]);
+
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
       if (pendingRef.current > 0 || failedRef.current.size > 0) {
@@ -63,10 +94,6 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
 
   if (!stageDef) return <div className="empty-hint">未知阶段</div>;
 
-  // 立即发送保存（本地 SQLite 写入为毫秒级，不需要防抖）：
-  // 1) 消息发出后主进程按序写入，窗口即使立刻关闭，已发出的写入仍会完成；
-  // 2) 无定时器，不存在跨阶段/跨项目的字段名冲突；
-  // 3) 响应仅在仍处于同一阶段与项目时更新界面，避免旧响应污染新状态。
   const sendValue = (fieldKey: string, value: string) => {
     const requestStage = stageRef.current;
     const requestProject = projectRef.current;
@@ -102,6 +129,86 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
     onStatus(stageKey, next, reason);
   };
 
+  // 问卷方法的选题阶段：研究对象与场景用变量编辑器替代 direction 字段
+  const hideDirectionField = stageKey === "topic" && detail.project.researchMethod === "questionnaire";
+  const visibleFields = hideDirectionField ? fields.filter((f) => f.key !== "direction") : fields;
+
+  const variablesJson = values["variables"] ?? "";
+  const setVariables = (json: string) => {
+    setValues((prev) => ({ ...prev, variables: json }));
+    sendValue("variables", json);
+  };
+
+  const aiTargets: AiTarget[] = (() => {
+    if (stageKey === "topic") {
+      const t: AiTarget[] = [];
+      if (detail.project.researchMethod === "questionnaire") {
+        t.push({ key: "variables", label: "研究对象变量（自变量/因变量/中介变量）", kind: "variables" });
+      } else {
+        t.push({ key: "direction", label: "研究方向与关键词" });
+      }
+      t.push({ key: "candidates", label: "候选研究问题" });
+      return t;
+    }
+    if (stageKey === "design") {
+      return [...fields.map((f) => ({ key: f.key, label: f.label })), { key: "hypotheses", label: "研究假设卡片", kind: "hypotheses" as const }];
+    }
+    if (stageKey === "writing") {
+      return [
+        { key: "title", label: "论文标题" },
+        { key: "abstract", label: "摘要" },
+        { key: "keywords", label: "关键词" },
+      ];
+    }
+    return [];
+  })();
+
+  const handleAiFill = (key: string, content: string) => {
+    const a = api();
+    if (key === "variables") {
+      try {
+        const parsed = JSON.parse(content) as Record<string, unknown>;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          setVariables(JSON.stringify(parsed));
+          return;
+        }
+      } catch { /* 原样保存 */ }
+      setVariables(content);
+      return;
+    }
+    if (key === "hypotheses") {
+      try {
+        const arr = JSON.parse(content);
+        if (Array.isArray(arr)) {
+          const cards: HypothesisCard[] = arr.map((h) => {
+            const r = (h ?? {}) as Record<string, unknown>;
+            return { number: String(r.number ?? "H"), statement: String(r.statement ?? ""), iv: String(r.iv ?? ""), dv: String(r.dv ?? ""), basis: String(r.basis ?? "") };
+          }).filter((h) => h.statement.trim());
+          if (cards.length > 0 && a) {
+            setHypotheses((prev) => [...prev, ...cards]);
+            void a.stage4ReplaceHypotheses(detail.project.id, [...hypotheses, ...cards]);
+          }
+        }
+      } catch { /* 不是 JSON 数组，忽略 */ }
+      return;
+    }
+    setValues((prev) => ({ ...prev, [key]: content }));
+    sendValue(key, content);
+  };
+
+  const updateCard = (i: number, patch: Partial<HypothesisCard>) => {
+    setHypotheses((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  };
+
+  const saveHypotheses = async () => {
+    const a = api();
+    if (!a) return;
+    await a.stage4ReplaceHypotheses(detail.project.id, hypotheses.filter((h) => h.statement.trim()));
+    void loadStageExtras();
+  };
+
+  const showContentCard = stageKey !== "establish";
+
   return (
     <div className="workspace-inner">
       <div className="ws-head">
@@ -124,97 +231,150 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
         </div>
       </div>
 
-      <section className="card">
-        <h2 className="card-title">这一阶段做什么</h2>
-        <div className="stage-guide">
-          <div><strong>目标：</strong><span>{stageDef.goal}</span></div>
-          <div><strong>需要什么材料：</strong><span>{stageDef.inputs.join("；")}</span></div>
-          <div><strong>你要做什么：</strong><span>{stageDef.actions.join("；")}</span></div>
-          <div><strong>会得到什么：</strong><span>{stageDef.outputs.join("；")}</span></div>
-          <div><strong>检查清单：</strong>
-            <ul className="check-list">{stageDef.checklist.map((c, i) => <li key={i}>{c}</li>)}</ul>
-          </div>
-          {nextStage && <div><strong>下一步：</strong><span>{nextStage.name}</span></div>}
-        </div>
-      </section>
+      <StageGuide stageDef={stageDef} index={stageIndex} variant={stageKey === "establish" ? "table" : "flow"} />
 
-      <section className="card">
-        <div className="card-head-row">
-          <h2 className="card-title">本阶段内容</h2>
-          <div className="ws-actions">
-            <span className={"badge badge-" + status}>{STATUS_LABEL[status]}</span>
-            {record?.skipReason && <span className="muted" style={{ fontSize: 12 }}>{record.skipReason}</span>}
-            {status === "not_started" && <button className="btn btn-sm btn-primary" onClick={() => statusAction("in_progress")}>开始此阶段</button>}
-            {status === "in_progress" && (
-              <>
-                <button className="btn btn-sm" onClick={() => statusAction("done")}>标记完成</button>
-                <button className="btn btn-sm" onClick={() => statusAction("needs_review")}>需复核</button>
-              </>
-            )}
-            {status === "needs_review" && (
-              <>
-                <button className="btn btn-sm" onClick={() => statusAction("done")}>标记完成</button>
-                <button className="btn btn-sm" onClick={() => statusAction("in_progress")}>继续修改</button>
-              </>
-            )}
-            {status === "done" && <button className="btn btn-sm" onClick={() => statusAction("in_progress")}>重新打开</button>}
-            {status === "skipped" ? (
-              <button className="btn btn-sm" onClick={() => statusAction("not_started")}>恢复此阶段</button>
-            ) : (
-              <button className="btn btn-sm" onClick={() => setSkipOpen(!skipOpen)}>跳过此阶段</button>
-            )}
-            {skipOpen && (
-              <span className="skip-row">
-                <input className="input input-inline" placeholder="跳过原因（必填）" value={skipReason} onChange={(e) => setSkipReason(e.target.value)} />
-                <button className="btn btn-sm" disabled={!skipReason.trim()} onClick={() => { statusAction("skipped", skipReason.trim()); setSkipOpen(false); }}>确认跳过</button>
-              </span>
-            )}
+      {showContentCard && (
+        <section className="card">
+          <div className="card-head-row">
+            <h2 className="card-title">本阶段内容</h2>
+            <div className="ws-actions">
+              <span className={"badge badge-" + status}>{STATUS_LABEL[status]}</span>
+              {record?.skipReason && <span className="muted" style={{ fontSize: 12 }}>{record.skipReason}</span>}
+              {status === "not_started" && <button className="btn btn-sm btn-primary" onClick={() => statusAction("in_progress")}>开始此阶段</button>}
+              {status === "in_progress" && (
+                <>
+                  <button className="btn btn-sm" onClick={() => statusAction("done")}>标记完成</button>
+                  <button className="btn btn-sm" onClick={() => statusAction("needs_review")}>需复核</button>
+                </>
+              )}
+              {status === "needs_review" && (
+                <>
+                  <button className="btn btn-sm" onClick={() => statusAction("done")}>标记完成</button>
+                  <button className="btn btn-sm" onClick={() => statusAction("in_progress")}>继续修改</button>
+                </>
+              )}
+              {status === "done" && <button className="btn btn-sm" onClick={() => statusAction("in_progress")}>重新打开</button>}
+              {status === "skipped" ? (
+                <button className="btn btn-sm" onClick={() => statusAction("not_started")}>恢复此阶段</button>
+              ) : (
+                <button className="btn btn-sm" onClick={() => setSkipOpen(!skipOpen)}>跳过此阶段</button>
+              )}
+              {skipOpen && (
+                <span className="skip-row">
+                  <input className="input input-inline" placeholder="跳过原因（必填）" value={skipReason} onChange={(e) => setSkipReason(e.target.value)} />
+                  <button className="btn btn-sm" disabled={!skipReason.trim()} onClick={() => { statusAction("skipped", skipReason.trim()); setSkipOpen(false); }}>确认跳过</button>
+                </span>
+              )}
+            </div>
           </div>
-        </div>
 
-        {fields.length === 0 ? (
-          <p className="muted">该阶段暂无专门输入字段；可先查看「这一阶段做什么」，完成后再标记状态。</p>
-        ) : (
-          <div className="fields">
-            {fields.map((f) => (
-              <div className="field" key={f.key}>
-                <label htmlFor={"field-" + f.key}>{f.label}</label>
-                {f.kind === "textarea" ? (
-                  <textarea id={"field-" + f.key} className="textarea" placeholder={f.placeholder}
-                    value={values[f.key] ?? ""} onChange={(e) => setValue(f.key, e.target.value)} />
-                ) : (
-                  <input id={"field-" + f.key} className="input" placeholder={f.placeholder}
-                    value={values[f.key] ?? ""} onChange={(e) => setValue(f.key, e.target.value)} />
-                )}
-                {f.help && <span className="hint">{f.help}</span>}
+          {visibleFields.length > 0 && (
+            <div className="fields">
+              {visibleFields.map((f) => (
+                <div className="field" key={f.key}>
+                  <label htmlFor={"field-" + f.key}>{f.label}{f.placeholder?.includes("选填") ? <span className="optional-tag">选填</span> : null}</label>
+                  {f.kind === "textarea" ? (
+                    <textarea id={"field-" + f.key} className="textarea" placeholder={f.placeholder}
+                      value={values[f.key] ?? ""} onChange={(e) => setValue(f.key, e.target.value)} />
+                  ) : (
+                    <input id={"field-" + f.key} className="input" placeholder={f.placeholder}
+                      value={values[f.key] ?? ""} onChange={(e) => setValue(f.key, e.target.value)} />
+                  )}
+                  {f.help && <span className="hint">{f.help}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {stageKey === "topic" && detail.project.researchMethod === "questionnaire" && (
+            <div className="var-editor-wrap">
+              <VariableEditor value={variablesJson} onChange={setVariables} />
+            </div>
+          )}
+
+          {AI_STAGES.includes(stageKey) && (
+            <AiAssistant detail={detail} stageKey={stageKey} targets={aiTargets} onFill={handleAiFill} />
+          )}
+
+          {stageKey === "design" && (
+            <div className="hypo-wrap">
+              <div className="card-head-row">
+                <h3 className="ai-title">研究假设卡片（保存后可随时更换）</h3>
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+              {hypotheses.length > 0 && (
+                <div className="hypo-list">
+                  {hypotheses.map((h, i) => (
+                    <div key={i} className="hypo-card">
+                      <div className="lit-search-row">
+                        <input className="input hypo-num" aria-label="假设编号" value={h.number} onChange={(e) => updateCard(i, { number: e.target.value })} />
+                        <input className="input" aria-label="假设陈述" placeholder="假设陈述" value={h.statement} onChange={(e) => updateCard(i, { statement: e.target.value })} />
+                      </div>
+                      <div className="lit-search-row">
+                        <input className="input" aria-label="自变量" placeholder="自变量（IV）" value={h.iv} onChange={(e) => updateCard(i, { iv: e.target.value })} />
+                        <input className="input" aria-label="因变量" placeholder="因变量（DV）" value={h.dv} onChange={(e) => updateCard(i, { dv: e.target.value })} />
+                      </div>
+                      <div className="lit-search-row">
+                        <input className="input" aria-label="假设依据" placeholder="依据（文献或待核验）" value={h.basis} onChange={(e) => updateCard(i, { basis: e.target.value })} />
+                        <button className="btn btn-sm btn-danger" onClick={() => setHypotheses((prev) => prev.filter((_, idx) => idx !== i))}>移除</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="lit-actions">
+                <button className="btn" onClick={() => setHypotheses((prev) => [...prev, { number: "H" + (prev.length + 1), statement: "", iv: "", dv: "", basis: "" }])}>添加空白卡片</button>
+                <button className="btn btn-primary" onClick={() => void saveHypotheses()}>保存假设卡片</button>
+              </div>
+            </div>
+          )}
+
+          {stageKey === "topic" && savedDirections.length > 0 && (
+            <div className="lit-list">
+              {savedDirections.map((d) => (
+                <div key={d.id} className="lit-item">
+                  <div className="lit-item-main">
+                    <div className="lit-title">{d.question}<span className="badge badge-warn">AI 生成</span></div>
+                    <div className="muted">数据路径：{d.dataPath || "未说明"} · 可行性：{d.feasibility || "未说明"} · 限制：{d.limitations || "未说明"}</div>
+                  </div>
+                  <div className="lit-item-actions">
+                    <button className="btn btn-sm btn-danger" onClick={async () => { const a = api(); if (!a) return; await a.stage4DeleteDirection(d.id); void loadStageExtras(); }}>删除</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {stageKey === "design" && (
+        <VersionSection
+          projectId={detail.project.id}
+          stageKey="design"
+          buildContent={() => JSON.stringify({ fields: values, hypotheses })}
+          onRestore={(contentJson, warning) => {
+            try {
+              const parsed = JSON.parse(contentJson) as { fields?: Record<string, string>; hypotheses?: HypothesisCard[] };
+              if (parsed.fields) {
+                setValues((prev) => ({ ...prev, ...parsed.fields }));
+                for (const [fieldKey, value] of Object.entries(parsed.fields)) sendValue(fieldKey, value);
+              }
+              if (parsed.hypotheses) {
+                setHypotheses(parsed.hypotheses);
+                const a = api();
+                if (a) void a.stage4ReplaceHypotheses(detail.project.id, parsed.hypotheses);
+              }
+              // 提示由 VersionSection 内部展示
+              void warning;
+            } catch { /* 版本内容解析失败（由 VersionSection 提示） */ }
+          }}
+        />
+      )}
 
       {stageDef.pending && (
         <div className="banner banner-info">未接入提示：{stageDef.pending}</div>
       )}
 
       {stageKey === "literature" && <LiteraturePanel detail={detail} />}
-
-      {stageKey === "topic" && <TopicPanel detail={detail} />}
-
-      {stageKey === "design" && (
-        <DesignAssist
-          detail={detail}
-          values={values}
-          onDraft={(drafts) => {
-            setValues((prev) => ({ ...prev, ...drafts }));
-            for (const [fieldKey, value] of Object.entries(drafts)) sendValue(fieldKey, value);
-          }}
-          onRestoreFields={(fields) => {
-            setValues((prev) => ({ ...prev, ...fields }));
-            for (const [fieldKey, value] of Object.entries(fields)) sendValue(fieldKey, value);
-          }}
-        />
-      )}
 
       {stageKey === "proposal" && <ProposalPanel detail={detail} />}
 

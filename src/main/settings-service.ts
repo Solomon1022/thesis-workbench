@@ -6,6 +6,8 @@ import { testConnection } from "./model-service";
 
 export interface SettingsSnapshot {
   profiles: Array<ModelProfile & NetworkConfig>;
+  /** 用户已添加（保存过配置）的服务商 key，任务角色只从这些里选 */
+  configuredKeys: string[];
   secretStatus: Record<string, boolean>;
   roles: RoleAssignment[];
   encryptionAvailable: boolean;
@@ -23,6 +25,7 @@ export class SettingsService {
     const profiles = MODEL_PRESETS.map((preset) => stored.get(preset.providerKey) ?? { ...preset, ...DEFAULT_NETWORK });
     return {
       profiles,
+      configuredKeys: this.db.listModelProfiles().map((p) => p.providerKey),
       secretStatus: this.db.secretStatus(),
       roles: this.db.listRoleAssignments(),
       encryptionAvailable: safeStorage.isEncryptionAvailable(),

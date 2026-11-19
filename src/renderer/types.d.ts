@@ -15,6 +15,7 @@ declare global {
       setStageContent(projectId: string, stageKey: string, fieldKey: string, value: string): Promise<void>;
       settingsGet(): Promise<{
         profiles: Array<ModelProfile & NetworkConfig>;
+        configuredKeys: string[];
         secretStatus: Record<string, boolean>;
         roles: Array<{ roleKey: RoleKey; providerKey: string; model: string }>;
         encryptionAvailable: boolean;
@@ -86,6 +87,10 @@ declare global {
       exportDocxTo(projectId: string, targetPath: string): Promise<number>;
       exportPdf(projectId: string): Promise<{ canceled: true } | { path: string; size: number }>;
       exportPdfTo(projectId: string, targetPath: string): Promise<number>;
+      aiSuggest(projectId: string, stageKey: string, targets: Array<{ key: string; label: string }>): Promise<{ ok: boolean; message: string; suggestions?: Array<{ key: string; label: string; content: string; note: string }>; advice?: string; provider?: string; model?: string }>;
+      aiChat(projectId: string, stageKey: string, message: string): Promise<{ ok: boolean; message: string; reply?: string }>;
+      aiListConversations(projectId: string, stageKey: string): Promise<Array<{ role: string; content: string; createdAt: number }>>;
+      aiClearConversations(projectId: string, stageKey: string): Promise<void>;
     };
   }
 }

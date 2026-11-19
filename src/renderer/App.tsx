@@ -133,7 +133,7 @@ export function App() {
       </aside>
 
       {settingsOpen ? (
-        <main className="workspace">
+        <main className="workspace workspace-full">
           <SettingsView onBack={() => setSettingsOpen(false)} />
         </main>
       ) : detail ? (

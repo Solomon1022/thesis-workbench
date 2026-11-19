@@ -7,10 +7,11 @@ import type { WritingService } from "./writing-service";
 import type { DataService } from "./data-service";
 import type { ExportService } from "./export-service";
 import type { DocumentService } from "./document-service";
+import type { AiAssistService } from "./ai-assist-service";
 import type { ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
 import type { ProjectInput, StageStatus } from "../shared/types";
 
-export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService, exportService: ExportService, documentService: DocumentService): void {
+export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService, exportService: ExportService, documentService: DocumentService, aiAssist: AiAssistService): void {
   ipcMain.handle("runtime", () => ({ platform: process.platform, dbPath: db.path }));
   ipcMain.handle("project:list", () => db.listProjects());
   ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject(input));
@@ -104,6 +105,13 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("export:docxTo", (_e, projectId: string, targetPath: string) => documentService.docxTo(projectId, targetPath));
   ipcMain.handle("export:pdf", (_e, projectId: string) => documentService.exportPdf(projectId));
   ipcMain.handle("export:pdfTo", (_e, projectId: string, targetPath: string) => documentService.pdfTo(projectId, targetPath));
+
+  // 全局 AI 辅助
+  ipcMain.handle("ai:suggest", (_e, projectId: string, stageKey: string, targets: Array<{ key: string; label: string }>) =>
+    aiAssist.suggest(projectId, stageKey, targets));
+  ipcMain.handle("ai:chat", (_e, projectId: string, stageKey: string, message: string) => aiAssist.chat(projectId, stageKey, message));
+  ipcMain.handle("ai:listConversations", (_e, projectId: string, stageKey: string) => aiAssist.listConversations(projectId, stageKey));
+  ipcMain.handle("ai:clearConversations", (_e, projectId: string, stageKey: string) => aiAssist.clearConversations(projectId, stageKey));
 
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

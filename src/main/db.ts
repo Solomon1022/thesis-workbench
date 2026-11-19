@@ -244,6 +244,16 @@ export class ThesisDB {
         created_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_ps_project ON project_snapshots(project_id);
+
+      CREATE TABLE IF NOT EXISTS ai_conversations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT NOT NULL,
+        stage_key TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_aic_project ON ai_conversations(project_id, stage_key);
     `);
   }
 
@@ -800,6 +810,26 @@ export class ThesisDB {
 
   deleteProjectSnapshot(id: string): void {
     this.db.prepare("DELETE FROM project_snapshots WHERE id = ?").run(id);
+  }
+
+  // ===== AI 对话记忆 =====
+
+  appendConversation(projectId: string, stageKey: string, role: "user" | "assistant", content: string): void {
+    this.db.prepare("INSERT INTO ai_conversations (project_id, stage_key, role, content, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(projectId, stageKey, role, content, Date.now());
+  }
+
+  listConversations(projectId: string, stageKey: string, limit = 20): Array<{ role: string; content: string; createdAt: number }> {
+    const rows = this.db.prepare("SELECT * FROM ai_conversations WHERE project_id = ? AND stage_key = ? ORDER BY id DESC LIMIT ?").all(projectId, stageKey, limit) as unknown as Row[];
+    return rows.reverse().map((r) => ({
+      role: String(r.role ?? ""),
+      content: String(r.content ?? ""),
+      createdAt: Number(r.created_at),
+    }));
+  }
+
+  clearConversations(projectId: string, stageKey: string): void {
+    this.db.prepare("DELETE FROM ai_conversations WHERE project_id = ? AND stage_key = ?").run(projectId, stageKey);
   }
 
 }

@@ -28,7 +28,7 @@ test("备份与快照：不含密钥、恢复为副本、原项目不变", async
     await page.getByLabel("模型名 *").fill("m");
     await page.getByLabel("API Key").fill("sk-super-secret");
     await page.getByRole("button", { name: "保存配置" }).click();
-    await expect(page.getByText(/已保存（含密钥）/)).toBeVisible();
+    await expect(page.getByText(/密钥已加密保存到本机/)).toBeVisible();
     await page.getByRole("button", { name: "返回项目" }).click();
 
     // 项目 + 内容 + 审阅意见

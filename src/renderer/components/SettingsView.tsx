@@ -4,9 +4,11 @@ import type { ConnectionLayerResult, ModelProfile, NetworkConfig, RoleAssignment
 
 interface SettingsSnapshot {
   profiles: Array<ModelProfile & NetworkConfig>;
+  configuredKeys: string[];
   secretStatus: Record<string, boolean>;
   roles: RoleAssignment[];
   encryptionAvailable: boolean;
+  contactEmail: string;
 }
 
 const api = () => window.thesisWorkbench;
@@ -65,11 +67,14 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
     if (!profile.baseUrl.trim() && profile.providerKey !== "custom") return;
     if (!profile.model.trim()) return setError("请填写模型名");
     try {
+      const keySaved = apiKey.trim().length > 0;
       await a.settingsSaveProfile(profile, network);
-      if (apiKey.trim()) await a.settingsSaveSecret(profile.providerKey, apiKey);
+      if (keySaved) await a.settingsSaveSecret(profile.providerKey, apiKey);
       await refresh();
       setApiKey("");
-      setMessage("已保存" + (apiKey.trim() ? "（含密钥）" : ""));
+      setMessage(keySaved
+        ? "配置已保存；密钥已加密保存到本机（服务商：" + profile.name + "）。留空表示沿用已保存的密钥。"
+        : "配置已保存（未修改密钥）");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -192,6 +197,9 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             <div className="field">
               <label htmlFor="sp-key">API Key</label>
               <input id="sp-key" className="input" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={configured ? "已配置密钥（留空保持不变，输入新值将覆盖）" : "输入 API Key"} autoComplete="off" />
+              <span className="hint">
+                密钥状态：{configured ? <strong>已加密保存到本机</strong> : "未配置"}（密钥只以密文存储，界面不显示明文）
+              </span>
             </div>
           </div>
           <div className="form-grid">
@@ -238,12 +246,15 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
       {tab === "roles" && (
         <section className="card">
-          <p className="muted">五个任务角色可分别指定服务商与模型；未指定的角色在对应功能接入前保持未配置。</p>
+          <p className="muted">五个任务角色可分别指定服务商与模型。这里只列出你在「模型服务」中已添加的模型；请先添加 N 个模型，再到这里分配角色。</p>
+          {(snapshot?.configuredKeys.length ?? 0) === 0 && (
+            <p className="banner banner-error">还没有添加任何模型：请先到「模型服务」标签添加服务商并保存（含密钥），再回来分配角色。</p>
+          )}
           {TASK_ROLES.map((role) => {
             const assignment = roleMap.get(role.key);
             const providerKey = assignment?.providerKey ?? "";
             const model = assignment?.model ?? "";
-            const profiles = snapshot?.profiles ?? MODEL_PRESETS;
+            const profiles = (snapshot?.profiles ?? []).filter((p) => (snapshot?.configuredKeys ?? []).includes(p.providerKey));
             return (
               <div key={role.key} className="role-row">
                 <div className="role-info">
@@ -282,7 +293,43 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
       {tab === "search" && (
         <section className="card">
           <h2 className="card-title">搜索服务</h2>
-          <p className="muted">Tavily / Brave 等检索服务将在后续阶段接入。</p>
+          <p className="muted">检索辅助（生成检索式）可以单独指定一个已添加的模型；学术检索本身走 Crossref / arXiv / PubMed 真实数据源。</p>
+          {(() => {
+            const role = TASK_ROLES.find((r) => r.key === "search_assist") as (typeof TASK_ROLES)[number];
+            const assignment = roleMap.get(role.key);
+            const providerKey = assignment?.providerKey ?? "";
+            const model = assignment?.model ?? "";
+            const profiles = (snapshot?.profiles ?? []).filter((p) => (snapshot?.configuredKeys ?? []).includes(p.providerKey));
+            return (
+              <div className="role-row">
+                <div className="role-info">
+                  <strong>{role.label}</strong>
+                  <span className="muted">{role.description}</span>
+                </div>
+                <select
+                  className="select role-select"
+                  aria-label={role.label + "服务商"}
+                  value={providerKey}
+                  onChange={(e) => {
+                    const p = profiles.find((x) => x.providerKey === e.target.value);
+                    const m = assignment?.model || p?.model || "";
+                    void saveRole(role.key, e.target.value, m);
+                  }}
+                >
+                  <option value="">— 未指定 —</option>
+                  {profiles.map((p) => <option key={p.providerKey} value={p.providerKey}>{p.name}</option>)}
+                </select>
+                <input
+                  className="input role-model"
+                  aria-label={role.label + "模型名"}
+                  placeholder="模型名（留空则使用该服务商默认）"
+                  value={model}
+                  onChange={(e) => void saveRole(role.key, providerKey, e.target.value)}
+                />
+                <button className="btn btn-sm" aria-label={"保存" + role.label} onClick={() => void saveRole(role.key, providerKey, model)}>保存</button>
+              </div>
+            );
+          })()}
           <div className="field">
             <label htmlFor="sp-email">联系邮箱（Crossref 礼貌池）</label>
             <input id="sp-email" className="input" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="Crossref 要求真实邮箱以获得正常检索配额；示例域名会被拒绝（HTTP 429）" />
