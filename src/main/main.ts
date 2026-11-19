@@ -1,11 +1,18 @@
 import { app, BrowserWindow, shell } from "electron";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { ThesisDB } from "./db";
 import { registerIpc } from "./ipc";
 
 let mainWindow: BrowserWindow | null = null;
 let db: ThesisDB | null = null;
+
+// Isolate Electron's app data when running desktop tests.
+if (process.env.NODE_ENV === "test" && process.env.TWB_TEST_USER_DATA) {
+  const testUserData = path.resolve(process.env.TWB_TEST_USER_DATA);
+  mkdirSync(testUserData, { recursive: true });
+  app.setPath("userData", testUserData);
+}
 
 // 缓解部分机器/远程桌面环境下 GPU 进程触发的 0x80000003 崩溃（CHECK 失败）。
 // 本应用以表单为主，软件渲染无可见性能影响。

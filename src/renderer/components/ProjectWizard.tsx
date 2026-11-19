@@ -23,12 +23,11 @@ export function ProjectWizard({ busy, onCancel, onCreate }: {
   const toggleDiscipline = (d: string) =>
     setDisciplines((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
 
-  const toggleMaterial = (k: "title" | "literature" | "data" | "draft" | "notes") =>
-    setMaterialEnabled((prev) => {
-      const enabled = !prev[k];
-      if (!enabled) setMaterials((current) => ({ ...current, [k]: "" }));
-      return { ...prev, [k]: enabled };
-    });
+  const toggleMaterial = (k: "title" | "literature" | "data" | "draft" | "notes") => {
+    const enabled = !materialEnabled[k];
+    setMaterialEnabled((prev) => ({ ...prev, [k]: enabled }));
+    if (!enabled) setMaterials((current) => ({ ...current, [k]: "" }));
+  };
 
   const hasMaterial = (k: keyof ExistingMaterials) => materialEnabled[k];
 

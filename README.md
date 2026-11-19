@@ -25,11 +25,11 @@
 npm install          # 网络受限时可先设置 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 npm run dev          # 开发模式（vite + electron）
 npm test             # 单元测试（13 个用例）
-npm run test:electron # 桌面端到端测试（1 个用例：创建→模板差异→保存→重启恢复）
+npm run test:electron # 桌面端到端测试（2 个用例：主流程 + 三类模板与重启恢复；使用独立临时 userData，不读写日常数据）
 npm run desktop:pack # 打包为解包目录（release/win-unpacked）
 ```
 
-验证证据：单元测试 13/13；electron 端到端 1/1；win-unpacked 打包应用实测可启动并创建数据库。
+验证证据：单元测试 13/13；electron 端到端 2/2；win-unpacked 打包应用实测可启动并创建数据库（普通运行使用常规 userData，测试使用隔离目录）。
 
 ## 许可证
 

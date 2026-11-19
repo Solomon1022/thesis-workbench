@@ -1,16 +1,22 @@
 import { expect, test, _electron as electron } from "@playwright/test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 /**
  * 阶段 1 主流程验证：
  * 创建项目（选学科+研究方法）→ 模板字段随方法变化 → 填写内容自动保存 →
  * 关闭应用 → 重新启动 → 项目与内容仍在。
- * 测试数据使用唯一名称，避免多次运行互相干扰。
+ * 测试使用独立临时 userData（TWB_TEST_USER_DATA），不读写日常数据。
  */
 test("创建项目→模板差异→保存→重启恢复", async () => {
-  const launchEnv = { ...process.env, ELECTRON_DEV_URL: "http://localhost:5173" } as { [key: string]: string };
+  // 使用独立临时 userData，不读写日常数据库（仅 NODE_ENV=test 时主进程启用该开关）
+  const userDataDir = mkdtempSync(path.join(tmpdir(), "thesis-workbench-e2e-"));
+  const launchEnv = { ...process.env, NODE_ENV: "test", TWB_TEST_USER_DATA: userDataDir, ELECTRON_DEV_URL: "http://localhost:5173" } as { [key: string]: string };
   delete launchEnv.ELECTRON_RUN_AS_NODE;
 
   const runName = "测试-化学实验-" + Date.now();
+  try {
 
   const app = await electron.launch({ args: ["."], env: launchEnv });
   try {
@@ -59,5 +65,12 @@ test("创建项目→模板差异→保存→重启恢复", async () => {
     await expect(page2.getByText("已完成", { exact: false }).first()).toBeVisible();
   } finally {
     await app2.close();
+  }
+  } finally {
+    // 安全清理临时测试目录（仅清理本测试创建的目录）
+    const relative = path.relative(path.resolve(tmpdir()), path.resolve(userDataDir));
+    if (relative && !relative.startsWith("..") && !path.isAbsolute(relative) && path.basename(userDataDir).startsWith("thesis-workbench-e2e-")) {
+      rmSync(userDataDir, { recursive: true, force: true });
+    }
   }
 });

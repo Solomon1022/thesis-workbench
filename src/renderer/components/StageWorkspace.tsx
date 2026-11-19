@@ -19,36 +19,76 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
   const methodLabel = METHOD_TEMPLATES[detail.project.researchMethod]?.label ?? "未选方法";
 
   const [values, setValues] = useState<Record<string, string>>(detail.content[stageKey] ?? {});
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [savedAt, setSavedAt] = useState("");
-  const [dirty, setDirty] = useState(false);
   const [skipOpen, setSkipOpen] = useState(false);
   const [skipReason, setSkipReason] = useState("");
-  const timers = useRef<Map<string, number>>(new Map());
+  const pendingRef = useRef(0);
+  const failedRef = useRef<Set<string>>(new Set());
+  const stageRef = useRef(stageKey);
+  const projectRef = useRef(detail.project.id);
 
-  // 阶段或项目切换时，从最新内容初始化
+  // 阶段或项目切换时，从最新内容初始化，并丢弃旧请求的界面影响
   useEffect(() => {
+    stageRef.current = stageKey;
+    projectRef.current = detail.project.id;
     setValues(detail.content[stageKey] ?? {});
+    setSaveState("idle");
     setSavedAt("");
-    setDirty(false);
+    failedRef.current = new Set();
+    pendingRef.current = 0;
     setSkipOpen(false);
     setSkipReason("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stageKey, detail.project.id]);
 
+  // 关闭保护：有未完成写入或保存失败时提示，避免内容丢失
+  useEffect(() => {
+    const handler = (event: BeforeUnloadEvent) => {
+      if (pendingRef.current > 0 || failedRef.current.size > 0) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
+
   if (!stageDef) return <div className="empty-hint">未知阶段</div>;
+
+  // 立即发送保存（本地 SQLite 写入为毫秒级，不需要防抖）：
+  // 1) 消息发出后主进程按序写入，窗口即使立刻关闭，已发出的写入仍会完成；
+  // 2) 无定时器，不存在跨阶段/跨项目的字段名冲突；
+  // 3) 响应仅在仍处于同一阶段与项目时更新界面，避免旧响应污染新状态。
+  const sendValue = (fieldKey: string, value: string) => {
+    const requestStage = stageRef.current;
+    const requestProject = projectRef.current;
+    pendingRef.current += 1;
+    setSaveState("saving");
+    void onContent(requestStage, fieldKey, value).then((ok) => {
+      if (stageRef.current !== requestStage || projectRef.current !== requestProject) return;
+      if (ok) failedRef.current.delete(fieldKey); else failedRef.current.add(fieldKey);
+      pendingRef.current = Math.max(0, pendingRef.current - 1);
+      if (pendingRef.current === 0) {
+        if (failedRef.current.size > 0) {
+          setSaveState("failed");
+        } else {
+          setSaveState("saved");
+          setSavedAt(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+        }
+      }
+    });
+  };
 
   const setValue = (fieldKey: string, value: string) => {
     setValues((prev) => ({ ...prev, [fieldKey]: value }));
-    setDirty(true);
-    const t = timers.current.get(fieldKey);
-    if (t) window.clearTimeout(t);
-    timers.current.set(fieldKey, window.setTimeout(async () => {
-      const saved = await onContent(stageKey, fieldKey, value);
-      if (!saved) return;
-      timers.current.delete(fieldKey);
-      setDirty(timers.current.size > 0);
-      setSavedAt(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
-    }, 500));
+    sendValue(fieldKey, value);
+  };
+
+  const retryFailed = () => {
+    for (const fieldKey of failedRef.current) {
+      sendValue(fieldKey, values[fieldKey] ?? "");
+    }
   };
 
   const statusAction = (next: StageStatus, reason = "") => {
@@ -66,7 +106,14 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
           </div>
         </div>
         <div className="ws-save">
-          {dirty ? "保存中…" : savedAt ? "已自动保存 " + savedAt : ""}
+          {saveState === "saving" && <span>保存中…</span>}
+          {saveState === "failed" && (
+            <>
+              <span className="save-failed">保存失败（部分内容未写入）</span>
+              <button className="btn btn-sm" onClick={retryFailed}>重试</button>
+            </>
+          )}
+          {saveState === "saved" && savedAt && <span>已自动保存 {savedAt}</span>}
         </div>
       </div>
 

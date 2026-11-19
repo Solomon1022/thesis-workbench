@@ -68,6 +68,16 @@ export function App() {
     if (!a || !detail) return false;
     try {
       await a.setStageContent(detail.project.id, stageKey, fieldKey, value);
+      setDetail((current) => {
+        if (!current || current.project.id !== detail.project.id) return current;
+        return {
+          ...current,
+          content: {
+            ...current.content,
+            [stageKey]: { ...(current.content[stageKey] ?? {}), [fieldKey]: value },
+          },
+        };
+      });
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
