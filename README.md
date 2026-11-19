@@ -2,7 +2,7 @@
 
 本地运行的论文研究与写作工作台，计划在 GitHub 开源。需求依据见 outputs/ 目录下的《01-论文工作台-产品与技术方案.md》与《02-论文工作台-AI开发交接提示词.md》。
 
-> 状态：**阶段 1-5（项目基础、API 与多角色模型、真实文献链路、选题与研究设计、真实数据与基础分析）已交付**。正式名称、仓库名与开源许可证尚未确定（阶段 7 决定）。
+> 状态：**阶段 1-6（项目基础、API 与多角色模型、真实文献链路、选题与研究设计、真实数据与基础分析、写作审阅与导出）已交付**。正式名称、仓库名与开源许可证尚未确定（阶段 7 决定）。
 
 ## 当前进度
 
@@ -51,17 +51,26 @@
 - AI（分析解释角色）只解释真实计算结果，禁止编造数字
 - SPSS 官方菜单步骤与变量字典（不声称执行）；中介/结构方程明确「未支持」
 
+### 已实现（阶段 6）
+
+- 写作内容管理：论文标题/摘要/关键词/草稿（纯文本，格式限制已标注）
+- 审阅修改工作流：意见来源/内容/建议/状态流转/修改说明/按章节与状态筛选，持久化与项目隔离
+- 项目备份包（ZIP，含附件副本、不含密钥与绝对路径）与恢复为新项目副本；项目快照（附件按缺失提示）
+- DOCX 导出（标题层级/段落/表格/参考文献/中文，python-docx 独立验证可打开）；PDF 导出（A4/页码/分页）
+- 打包版验收测试：tests/packaged/accept.spec.ts（先 npm run desktop:pack 再运行）
+
 ### 未接入（界面已明确标注，不以演示冒充）
 
-- 导出与备份（阶段 6）、诊断图与多重共线性检验（后续版本）
+- 诊断图与多重共线性检验（后续版本）；DOCX 目录自动生成、图片嵌入、公式脚注（需在 Word 中手动处理）；PDF 目录超链接
 
 ## 运行与验证
 
 ```bash
 npm install          # 网络受限时可先设置 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 npm run dev          # 开发模式（vite + electron）
-npm test             # 单元测试（42 个用例；统计数值与 numpy 独立参考值对照）
-npm run test:electron # 桌面端到端测试（7 个用例：主流程 + 三类模板 + 模型配置 + 文献链路 + 阶段 4 + 写作管线 + 阶段 5；使用独立临时 userData，不读写日常数据）
+npm test             # 单元测试（47 个用例；统计数值与 numpy 独立参考值对照）
+npm run test:electron # 桌面端到端测试（10 个用例，覆盖阶段 1-6 全部工作流；使用独立临时 userData，不读写日常数据）
+npm run desktop:pack  # 打包后运行打包版验收：npx playwright test tests/packaged/accept.spec.ts --config=playwright.electron.config.ts
 npm run desktop:pack # 打包为解包目录（release/win-unpacked）
 ```
 
