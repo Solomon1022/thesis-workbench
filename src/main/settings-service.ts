@@ -73,12 +73,14 @@ export class SettingsService {
     }
     const controller = new AbortController();
     this.tests.set(testId, controller);
+    // 取消（外部 abort）与超时（20 秒）共用一个信号
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]);
     try {
       return await testConnection({
         profile,
         apiKey,
         network: { mode: profile.mode, proxyUrl: profile.proxyUrl },
-        signal: controller.signal,
+        signal,
       });
     } finally {
       this.tests.delete(testId);

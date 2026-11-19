@@ -48,7 +48,10 @@ export function friendlyHttpError(status: number, bodyText: string): string {
 }
 
 function abortOrNetworkError(error: unknown, signal?: AbortSignal): string {
-  if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) return "已取消";
+  if (signal?.aborted || (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError"))) {
+    if (error instanceof Error && error.name === "TimeoutError") return "超时：请求超过 20 秒未完成";
+    return "已取消";
+  }
   if (error instanceof Error && /fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|socket|tls|proxy/i.test(error.message)) {
     return "无法连接服务器（请检查 Base URL、网络方式与网络连接）：" + error.message;
   }
