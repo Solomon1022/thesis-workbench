@@ -82,6 +82,10 @@ declare global {
       snapshotList(projectId: string): Promise<Array<{ id: string; name: string; contentJson: string; createdAt: number }>>;
       snapshotDelete(id: string): Promise<void>;
       snapshotRestore(id: string): Promise<{ projectId: string; projectName: string; missingAttachments: string[] }>;
+      exportDocx(projectId: string): Promise<{ canceled: true } | { path: string; size: number }>;
+      exportDocxTo(projectId: string, targetPath: string): Promise<number>;
+      exportPdf(projectId: string): Promise<{ canceled: true } | { path: string; size: number }>;
+      exportPdfTo(projectId: string, targetPath: string): Promise<number>;
     };
   }
 }

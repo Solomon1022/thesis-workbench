@@ -6,10 +6,11 @@ import type { Stage4Service } from "./stage4-service";
 import type { WritingService } from "./writing-service";
 import type { DataService } from "./data-service";
 import type { ExportService } from "./export-service";
+import type { DocumentService } from "./document-service";
 import type { ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
 import type { ProjectInput, StageStatus } from "../shared/types";
 
-export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService, exportService: ExportService): void {
+export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService, exportService: ExportService, documentService: DocumentService): void {
   ipcMain.handle("runtime", () => ({ platform: process.platform, dbPath: db.path }));
   ipcMain.handle("project:list", () => db.listProjects());
   ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject(input));
@@ -97,6 +98,12 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("snapshot:list", (_e, projectId: string) => db.listProjectSnapshots(projectId));
   ipcMain.handle("snapshot:delete", (_e, id: string) => db.deleteProjectSnapshot(id));
   ipcMain.handle("snapshot:restore", (_e, id: string) => exportService.restoreSnapshot(id));
+
+  // 阶段 6：文档导出
+  ipcMain.handle("export:docx", (_e, projectId: string) => documentService.exportDocx(projectId));
+  ipcMain.handle("export:docxTo", (_e, projectId: string, targetPath: string) => documentService.docxTo(projectId, targetPath));
+  ipcMain.handle("export:pdf", (_e, projectId: string) => documentService.exportPdf(projectId));
+  ipcMain.handle("export:pdfTo", (_e, projectId: string, targetPath: string) => documentService.pdfTo(projectId, targetPath));
 
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

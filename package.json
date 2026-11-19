@@ -17,6 +17,7 @@
     "desktop:dist": "npm run build && electron-builder"
   },
   "dependencies": {
+    "docx": "^9.16.0",
     "fast-xml-parser": "^5.12.1",
     "jszip": "^3.10.2",
     "undici": "^8.12.4",

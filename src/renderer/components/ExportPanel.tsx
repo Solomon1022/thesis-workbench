@@ -62,6 +62,40 @@ export function ExportPanel({ detail, onRestored }: { detail: ProjectDetail; onR
     }
   };
 
+  const exportDoc = async () => {
+    const a = api();
+    if (!a) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await a.exportDocx(projectId);
+      if (!("canceled" in r)) {
+        setMessage("DOCX 已导出并确认存在：" + r.path + "（" + (r.size / 1024).toFixed(1) + " KB）");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportPdfFile = async () => {
+    const a = api();
+    if (!a) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await a.exportPdf(projectId);
+      if (!("canceled" in r)) {
+        setMessage("PDF 已导出并确认存在：" + r.path + "（" + (r.size / 1024).toFixed(1) + " KB）");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const createSnapshot = async () => {
     const a = api();
     if (!a) return;
@@ -93,6 +127,19 @@ export function ExportPanel({ detail, onRestored }: { detail: ProjectDetail; onR
         <button className="btn btn-primary" disabled={busy} onClick={() => void backup()}>导出项目备份包（ZIP）</button>
         <button className="btn" disabled={busy} onClick={() => void restore()}>从备份包恢复为新项目</button>
       </div>
+
+      <h3 className="write-section h3" style={{ fontSize: 14, margin: "10px 0 4px" }}>文档导出（真实项目内容）</h3>
+      <div className="lit-actions">
+        <button className="btn btn-primary" disabled={busy} onClick={() => void exportDoc()}>导出 DOCX</button>
+        <button className="btn btn-primary" disabled={busy} onClick={() => void exportPdfFile()}>导出 PDF</button>
+      </div>
+      <details className="lit-log">
+        <summary>格式能力与限制（导出前请阅读）</summary>
+        <div className="muted">
+          DOCX：支持标题层级、正文段落、表格、参考文献、审阅记录、中文（宋体/黑体，由本机 Word 渲染）、A4 页面设置。不支持：目录自动生成（请在 Word 中手动插入）、图片嵌入（附件仅以文件名列出）、公式与脚注。
+          PDF：支持 A4、中文字体（系统字体，不嵌入）、标题/正文/表格、页脚页码、长文本分页。不支持：目录超链接、图片嵌入（附件仅以文件名列出）。
+        </div>
+      </details>
 
       <div className="lit-search-row">
         <input className="input" aria-label="快照名称" placeholder="快照名称（如：提交导师审阅前）" value={snapName} onChange={(e) => setSnapName(e.target.value)} />

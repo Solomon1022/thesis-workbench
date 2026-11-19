@@ -120,6 +120,9 @@ export const METHOD_TEMPLATES: Record<string, MethodTemplate> = {
         { key: "baseline_results", label: "基线结果（真实运行后填写）", kind: "textarea", placeholder: "未实际运行不得填写性能数字" },
       ],
       writing: [
+        { key: "title", label: "论文标题", kind: "text", placeholder: "论文正式标题（导出时作为文档标题）" },
+        { key: "abstract", label: "摘要", kind: "textarea", placeholder: "中文摘要（导出时原样使用）" },
+        { key: "keywords", label: "关键词", kind: "text", placeholder: "分号分隔，如：深度学习；表示学习" },
         { key: "draft", label: "草稿与正文", kind: "textarea", placeholder: "AI 写作接地文献库生成；事实句带 [@ref_N] 引用，缺口进缺口清单" },
       ],
     },
@@ -157,6 +160,9 @@ export const METHOD_TEMPLATES: Record<string, MethodTemplate> = {
         { key: "sample_stats", label: "样本量与有效率", kind: "textarea" },
       ],
       writing: [
+        { key: "title", label: "论文标题", kind: "text", placeholder: "论文正式标题（导出时作为文档标题）" },
+        { key: "abstract", label: "摘要", kind: "textarea", placeholder: "中文摘要（导出时原样使用）" },
+        { key: "keywords", label: "关键词", kind: "text", placeholder: "分号分隔，如：深度学习；表示学习" },
         { key: "draft", label: "草稿与正文", kind: "textarea", placeholder: "AI 写作接地文献库生成；事实句带 [@ref_N] 引用，缺口进缺口清单" },
       ],
     },

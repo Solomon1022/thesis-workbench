@@ -76,6 +76,10 @@ const api = {
   snapshotList: (projectId: string) => ipcRenderer.invoke("snapshot:list", projectId),
   snapshotDelete: (id: string) => ipcRenderer.invoke("snapshot:delete", id),
   snapshotRestore: (id: string) => ipcRenderer.invoke("snapshot:restore", id),
+  exportDocx: (projectId: string) => ipcRenderer.invoke("export:docx", projectId),
+  exportDocxTo: (projectId: string, targetPath: string) => ipcRenderer.invoke("export:docxTo", projectId, targetPath),
+  exportPdf: (projectId: string) => ipcRenderer.invoke("export:pdf", projectId),
+  exportPdfTo: (projectId: string, targetPath: string) => ipcRenderer.invoke("export:pdfTo", projectId, targetPath),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);
