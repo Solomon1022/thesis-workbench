@@ -52,12 +52,61 @@ export class AiAssistService {
     return role;
   }
 
-  private stageContext(projectId: string, stageKey: string): string {
+
+  /** 全项目知识汇总：第 0 项信息 + 各阶段已填内容 + 变量 + 假设 + 候选方向 + 文献，作为 AI 的统一上下文。 */
+  buildProjectKnowledge(projectId: string): string {
     const detail = this.db.getProjectDetail(projectId);
-    const fields = detail.content[stageKey] ?? {};
-    const text = Object.entries(fields).map(([k, v]) => k + ": " + String(v).slice(0, 200)).join("\n");
-    const litCount = this.db.listLiterature(projectId).length;
-    return "阶段：" + (STAGES.find((s) => s.key === stageKey)?.name ?? stageKey) + "\n当前已填内容：\n" + (text || "（尚无）") + "\n文献库条目数：" + litCount + "（如需引用文献，请让用户从文献库选择具体条目，不要编造文献、数据或样本量）";
+    const p = detail.project;
+    const lines: string[] = [];
+    lines.push("# 项目信息");
+    lines.push("- 项目名称：" + p.name);
+    lines.push("- 学科：" + p.disciplines.join("、"));
+    lines.push("- 研究方法：" + p.researchMethod);
+    lines.push("- 学历：" + p.educationLevel);
+    lines.push("- 截止日期：" + (p.deadline || "未设置"));
+    const materials = (p.materials ?? {}) as unknown as Record<string, string>;
+    if (Object.values(materials).some((v) => String(v ?? "").trim())) {
+      lines.push("- 已有材料：");
+      for (const [k, v] of Object.entries(materials)) {
+        if (String(v ?? "").trim()) lines.push("  - " + k + "：" + String(v).slice(0, 200));
+      }
+    }
+    lines.push("");
+    lines.push("# 各阶段内容");
+    for (const s of STAGES) {
+      const fields = detail.content[s.key] ?? {};
+      const entries = Object.entries(fields).filter(([, v]) => String(v ?? "").trim() !== "");
+      if (entries.length > 0) {
+        lines.push("## " + s.name);
+        for (const [k, v] of entries) lines.push("- " + k + "：" + String(v).slice(0, 300));
+      }
+    }
+    const hypotheses = this.db.listHypotheses(projectId);
+    if (hypotheses.length > 0) {
+      lines.push("");
+      lines.push("# 研究假设卡片");
+      for (const h of hypotheses) lines.push("- " + h.number + "：" + h.statement + "（IV: " + h.iv + "，DV: " + h.dv + "，依据: " + h.basis + "）");
+    }
+    const candidates = this.db.listTopicCandidates(projectId);
+    if (candidates.length > 0) {
+      lines.push("");
+      lines.push("# 已保存候选方向");
+      for (const c of candidates) lines.push("- " + c.question);
+    }
+    const literature = this.db.listLiterature(projectId);
+    if (literature.length > 0) {
+      lines.push("");
+      lines.push("# 文献库（" + literature.length + " 条，只能引用真实存在的条目）");
+      literature.slice(0, 15).forEach((l, i) => {
+        lines.push((i + 1) + ". " + l.title + " | " + l.authors + " | " + l.year + (l.doi ? " | DOI: " + l.doi : ""));
+      });
+    }
+    return lines.join("\n");
+  }
+
+  private stageContext(projectId: string, stageKey: string): string {
+    const stageName = STAGES.find((s) => s.key === stageKey)?.name ?? stageKey;
+    return "当前阶段：" + stageName + "\n\n以下是该论文项目已确定的全部知识（读取储存的信息；不得编造其中没有的文献、数据、样本量）：\n\n" + this.buildProjectKnowledge(projectId);
   }
 
   /** 生成字段建议：只返回建议，由用户决定是否填入。 */

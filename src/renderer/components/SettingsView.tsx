@@ -19,9 +19,8 @@ const LAYER_LABEL: Record<ConnectionLayerResult["layer"], string> = {
   capability: "③ 实际能力",
 };
 
-export function SettingsView({ onBack }: { onBack: () => void }) {
+export function SettingsView({ tab, onTabChange }: { tab: "models" | "roles" | "search"; onTabChange: (t: "models" | "roles" | "search") => void }) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
-  const [tab, setTab] = useState<"models" | "roles" | "search">("models");
   const [selected, setSelected] = useState("custom");
   const [profile, setProfile] = useState<ModelProfile>({ ...(MODEL_PRESETS.find((p) => p.providerKey === "custom") as ModelProfile) });
   const [network, setNetwork] = useState<NetworkConfig>({ ...DEFAULT_NETWORK });
@@ -144,23 +143,6 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="workspace-inner settings">
-      <div className="settings-top">
-        <div>
-          <h1>服务与模型设置</h1>
-          <p className="muted">
-            密钥经系统安全加密后保存在本机，界面与日志中不会出现明文；数据与密钥均不离开本机。
-            {snapshot && !snapshot.encryptionAvailable && <span className="save-failed">（当前系统安全加密不可用，无法保存密钥）</span>}
-          </p>
-        </div>
-        <button className="btn" onClick={onBack}>返回项目</button>
-      </div>
-
-      <div className="tabs">
-        <button className={"tab" + (tab === "models" ? " tab-on" : "")} onClick={() => setTab("models")}>模型服务</button>
-        <button className={"tab" + (tab === "roles" ? " tab-on" : "")} onClick={() => setTab("roles")}>任务角色</button>
-        <button className={"tab" + (tab === "search" ? " tab-on" : "")} onClick={() => setTab("search")}>搜索服务</button>
-      </div>
-
       {tab === "models" && (
         <section className="card">
           <div className="provider-list">

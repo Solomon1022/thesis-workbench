@@ -310,15 +310,22 @@ export class ThesisDB {
     return { project: this.rowToProject(row), stages, content };
   }
 
-  updateProject(id: string, patch: { name?: string; deadline?: string; disciplines?: string[] }): void {
+  updateProject(id: string, patch: { name?: string; deadline?: string; disciplines?: string[]; researchMethod?: string; educationLevel?: string; materials?: ExistingMaterials }): void {
     const cur = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as unknown as Row | undefined;
     if (!cur) throw new Error("项目不存在");
     let disciplines: string[] = [];
     try { disciplines = JSON.parse(String(cur.disciplines)) as string[]; } catch { /* keep empty */ }
-    this.db.prepare("UPDATE projects SET name = ?, deadline = ?, disciplines = ?, updated_at = ? WHERE id = ?").run(
+    let materials = EMPTY_MATERIALS;
+    try { materials = { ...EMPTY_MATERIALS, ...(JSON.parse(String(cur.materials)) as ExistingMaterials) }; } catch { /* keep empty */ }
+    this.db.prepare(
+      "UPDATE projects SET name = ?, deadline = ?, disciplines = ?, research_method = ?, education_level = ?, materials = ?, updated_at = ? WHERE id = ?"
+    ).run(
       patch.name ?? String(cur.name),
       patch.deadline ?? String(cur.deadline ?? ""),
       JSON.stringify(patch.disciplines ?? disciplines),
+      patch.researchMethod ?? String(cur.research_method),
+      patch.educationLevel ?? String(cur.education_level),
+      JSON.stringify(patch.materials ?? materials),
       Date.now(), id,
     );
   }

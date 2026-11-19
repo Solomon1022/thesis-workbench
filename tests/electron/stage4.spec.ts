@@ -29,7 +29,9 @@ function startMockModel(): { server: Server; base: string } {
       } else if (system.startsWith("你是论文写作助手，与研究者就该阶段内容实时对话")) {
         out = { reply: "" };
       } else if (system.startsWith("你是论文写作助手。针对给定字段生成建议内容草稿。")) {
-        if (user.includes("variables")) {
+        const marker = "需要生成建议的字段：";
+        const targetPart = user.includes(marker) ? user.slice(user.indexOf(marker) + marker.length) : user;
+        if (targetPart.includes("variables")) {
           out = {
             fields: [
               { key: "variables", content: VARIABLES_JSON, note: "变量划分建议，可按需增删" },
@@ -37,7 +39,7 @@ function startMockModel(): { server: Server; base: string } {
             ],
             advice: "整体建议：先确定变量关系，再细化研究问题。",
           };
-        } else if (user.includes("hypotheses")) {
+        } else if (targetPart.includes("hypotheses")) {
           out = {
             fields: [
               { key: "research_question", content: "直播互动性如何通过消费者信任影响购买意愿？（AI 草稿，待复核）", note: "基于变量关系" },

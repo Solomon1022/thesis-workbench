@@ -16,7 +16,8 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("project:list", () => db.listProjects());
   ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject(input));
   ipcMain.handle("project:get", (_e, id: string) => db.getProjectDetail(id));
-  ipcMain.handle("project:update", (_e, id: string, patch: { name?: string; deadline?: string; disciplines?: string[] }) => db.updateProject(id, patch));
+  ipcMain.handle("project:update", (_e, id: string, patch: { name?: string; deadline?: string; disciplines?: string[]; researchMethod?: string; educationLevel?: string; materials?: unknown }) =>
+    db.updateProject(id, patch as { name?: string; deadline?: string; disciplines?: string[]; researchMethod?: string; educationLevel?: string; materials?: Parameters<ThesisDB["updateProject"]>[1]["materials"] }));
   ipcMain.handle("project:delete", (_e, id: string) => db.deleteProject(id));
   ipcMain.handle("stage:setStatus", (_e, projectId: string, stageKey: string, status: StageStatus, skipReason: string) =>
     db.setStageStatus(projectId, stageKey, status, skipReason));
@@ -112,6 +113,7 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("ai:chat", (_e, projectId: string, stageKey: string, message: string) => aiAssist.chat(projectId, stageKey, message));
   ipcMain.handle("ai:listConversations", (_e, projectId: string, stageKey: string) => aiAssist.listConversations(projectId, stageKey));
   ipcMain.handle("ai:clearConversations", (_e, projectId: string, stageKey: string) => aiAssist.clearConversations(projectId, stageKey));
+  ipcMain.handle("ai:projectKnowledge", (_e, projectId: string) => aiAssist.buildProjectKnowledge(projectId));
 
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

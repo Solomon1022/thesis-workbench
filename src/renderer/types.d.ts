@@ -9,7 +9,7 @@ declare global {
       listProjects(): Promise<Project[]>;
       createProject(input: ProjectInput): Promise<ProjectDetail>;
       getProject(id: string): Promise<ProjectDetail>;
-      updateProject(id: string, patch: Partial<{ name: string; deadline: string; disciplines: string[] }>): Promise<void>;
+      updateProject(id: string, patch: Partial<{ name: string; deadline: string; disciplines: string[]; researchMethod: string; educationLevel: string; materials: { title: string; literature: string; data: string; draft: string; notes: string } }>): Promise<void>;
       deleteProject(id: string): Promise<void>;
       setStageStatus(projectId: string, stageKey: string, status: StageStatus, skipReason: string): Promise<void>;
       setStageContent(projectId: string, stageKey: string, fieldKey: string, value: string): Promise<void>;
@@ -91,6 +91,7 @@ declare global {
       aiChat(projectId: string, stageKey: string, message: string): Promise<{ ok: boolean; message: string; reply?: string }>;
       aiListConversations(projectId: string, stageKey: string): Promise<Array<{ role: string; content: string; createdAt: number }>>;
       aiClearConversations(projectId: string, stageKey: string): Promise<void>;
+      aiProjectKnowledge(projectId: string): Promise<string>;
     };
   }
 }

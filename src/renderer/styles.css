@@ -244,3 +244,8 @@ body {
 .var-row { margin: 3px 0; }
 .optional-tag { font-size: 11px; color: var(--muted); margin-left: 6px; font-weight: normal; }
 .hypo-wrap { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
+
+.knowledge-pre { white-space: pre-wrap; font-size: 12px; line-height: 1.7; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 420px; overflow: auto; font-family: inherit; }
+
+.nav-settings-title { font-weight: 700; font-size: 13px; padding: 8px 10px; color: var(--primary-dark, #1d4ed8); border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.nav-settings-foot { margin-top: auto; padding: 10px; border-top: 1px solid var(--border); }

@@ -15,6 +15,7 @@ export function App() {
   const [currentStage, setCurrentStage] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"models" | "roles" | "search">("models");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -128,14 +129,31 @@ export function App() {
         </div>
         {error && <div className="banner banner-error">{error}</div>}
         <div className="sidebar-bottom">
-          <button className="btn btn-block" onClick={() => { setSettingsOpen(true); }}>服务与模型设置</button>
+          <button className="btn btn-block" onClick={() => { setSettingsOpen(true); setSettingsTab("models"); }}>服务与模型设置</button>
         </div>
       </aside>
 
       {settingsOpen ? (
-        <main className="workspace workspace-full">
-          <SettingsView onBack={() => setSettingsOpen(false)} />
-        </main>
+        <>
+          <aside className="stage-nav">
+            <div className="nav-settings-title">服务与模型设置</div>
+            {(["models", "roles", "search"] as const).map((k) => (
+              <button
+                key={k}
+                className={"nav-stage" + (settingsTab === k ? " active" : "")}
+                onClick={() => setSettingsTab(k)}
+              >
+                <span className="nav-name">{k === "models" ? "模型服务" : k === "roles" ? "任务角色" : "搜索服务"}</span>
+              </button>
+            ))}
+            <div className="nav-settings-foot">
+              <button className="btn btn-block" onClick={() => setSettingsOpen(false)}>返回项目</button>
+            </div>
+          </aside>
+          <main className="workspace workspace-full">
+            <SettingsView tab={settingsTab} onTabChange={setSettingsTab} />
+          </main>
+        </>
       ) : detail ? (
         <>
           <StageNav

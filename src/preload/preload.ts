@@ -84,6 +84,7 @@ const api = {
   aiChat: (projectId: string, stageKey: string, message: string) => ipcRenderer.invoke("ai:chat", projectId, stageKey, message),
   aiListConversations: (projectId: string, stageKey: string) => ipcRenderer.invoke("ai:listConversations", projectId, stageKey),
   aiClearConversations: (projectId: string, stageKey: string) => ipcRenderer.invoke("ai:clearConversations", projectId, stageKey),
+  aiProjectKnowledge: (projectId: string): Promise<string> => ipcRenderer.invoke("ai:projectKnowledge", projectId),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);

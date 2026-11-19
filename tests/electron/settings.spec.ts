@@ -72,7 +72,8 @@ test("模型配置、三层连接测试、取消与角色分配可持久化", as
 
     // 进入设置，配置自定义中转
     await page.getByRole("button", { name: "服务与模型设置" }).click();
-    await expect(page.getByRole("heading", { name: "服务与模型设置" })).toBeVisible();
+    await expect(page.getByText("服务与模型设置", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "模型服务" })).toBeVisible();
     await page.getByRole("button", { name: "自定义 / OpenAI 兼容中转" }).click();
     await page.getByLabel("Base URL *").fill(mock.baseUrl);
     await page.getByLabel("模型名 *").fill("test-model");

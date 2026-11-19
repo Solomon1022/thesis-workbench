@@ -10,6 +10,7 @@ import { AnalysisPanel, DataPanel } from "./DataPanels";
 import { ReviewPanel } from "./ReviewPanel";
 import { ExportPanel } from "./ExportPanel";
 import { AiAssistant, StageGuide, VariableEditor, type AiTarget } from "./AiAssistant";
+import { EstablishPanel } from "./EstablishPanel";
 
 const api = () => window.thesisWorkbench;
 
@@ -207,8 +208,6 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
     void loadStageExtras();
   };
 
-  const showContentCard = stageKey !== "establish";
-
   return (
     <div className="workspace-inner">
       <div className="ws-head">
@@ -233,7 +232,9 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
 
       <StageGuide stageDef={stageDef} index={stageIndex} variant={stageKey === "establish" ? "table" : "flow"} />
 
-      {showContentCard && (
+      {stageKey === "establish" ? (
+        <EstablishPanel detail={detail} onUpdated={() => onProjectRestored()} />
+      ) : (
         <section className="card">
           <div className="card-head-row">
             <h2 className="card-title">本阶段内容</h2>
