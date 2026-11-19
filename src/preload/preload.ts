@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { ConnectionLayerResult, ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
+import type { EvidenceCard, LiteratureItem, SearchLogEntry, SearchOutcome } from "../shared/literature";
 import type { Project, ProjectDetail, ProjectInput, StageStatus } from "../shared/types";
 
 const api = {
@@ -22,6 +23,25 @@ const api = {
   settingsTestConnection: (testId: string, providerKey: string): Promise<ConnectionLayerResult[]> =>
     ipcRenderer.invoke("settings:testConnection", testId, providerKey),
   settingsCancelTest: (testId: string) => ipcRenderer.invoke("settings:cancelTest", testId),
+  literatureList: (projectId: string): Promise<LiteratureItem[]> => ipcRenderer.invoke("literature:list", projectId),
+  literatureSearch: (projectId: string, source: string, query: string): Promise<{ outcome: SearchOutcome; log: SearchLogEntry }> =>
+    ipcRenderer.invoke("literature:search", projectId, source, query),
+  literatureLookupDoi: (doi: string): Promise<{ found: boolean; message: string; item?: SearchOutcome["items"][number] }> =>
+    ipcRenderer.invoke("literature:lookupDoi", doi),
+  literatureSave: (projectId: string, input: unknown, opts: { note?: string; manuallyVerified?: boolean }) =>
+    ipcRenderer.invoke("literature:save", projectId, input, opts),
+  literatureVerifyManual: (id: string, note: string): Promise<void> => ipcRenderer.invoke("literature:verifyManual", id, note),
+  literatureDelete: (id: string): Promise<void> => ipcRenderer.invoke("literature:delete", id),
+  literatureAttachPdf: (projectId: string, literatureId: string): Promise<{ pdfName?: string; canceled?: boolean }> =>
+    ipcRenderer.invoke("literature:attachPdf", projectId, literatureId),
+  literatureListEvidence: (literatureId: string): Promise<EvidenceCard[]> => ipcRenderer.invoke("literature:listEvidence", literatureId),
+  literatureAddEvidence: (projectId: string, literatureId: string, claim: string, location: string): Promise<EvidenceCard> =>
+    ipcRenderer.invoke("literature:addEvidence", projectId, literatureId, claim, location),
+  literatureDeleteEvidence: (id: string): Promise<void> => ipcRenderer.invoke("literature:deleteEvidence", id),
+  literatureSearchLog: (projectId: string): Promise<SearchLogEntry[]> => ipcRenderer.invoke("literature:searchLog", projectId),
+  literatureGenQueries: (topic: string): Promise<{ ok: boolean; message: string; queries?: string[]; provider?: string; model?: string }> =>
+    ipcRenderer.invoke("literature:genQueries", topic),
+  openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:openExternal", url),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);

@@ -55,6 +55,25 @@ export class SettingsService {
     this.db.setRoleAssignment(roleKey, providerKey, model.trim());
   }
 
+  /** 解析某任务角色的可用调用配置（服务商 + 模型 + 明文密钥，仅主进程内使用）。未配置返回 null。 */
+  resolveRole(roleKey: RoleKey): { profile: ModelProfile & NetworkConfig; apiKey: string; model: string } | null {
+    const assignment = this.db.listRoleAssignments().find((r) => r.roleKey === roleKey);
+    if (!assignment || !assignment.providerKey) return null;
+    const stored = this.db.listModelProfiles().find((p) => p.providerKey === assignment.providerKey);
+    const preset = MODEL_PRESETS.find((p) => p.providerKey === assignment.providerKey);
+    const profile = stored ?? (preset ? { ...preset, ...DEFAULT_NETWORK } : null);
+    if (!profile || !profile.baseUrl) return null;
+    const model = (assignment.model || profile.model).trim();
+    if (!model) return null;
+    const ciphertext = this.db.getModelSecret(assignment.providerKey);
+    if (!ciphertext) return null;
+    try {
+      return { profile, apiKey: safeStorage.decryptString(Buffer.from(ciphertext, "base64")), model };
+    } catch {
+      return null;
+    }
+  }
+
   /** 三层连接测试；testId 用于取消。 */
   async testConnection(testId: string, providerKey: string): Promise<ConnectionLayerResult[]> {
     const stored = this.db.listModelProfiles().find((p) => p.providerKey === providerKey);

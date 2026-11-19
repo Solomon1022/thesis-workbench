@@ -3,6 +3,7 @@ import type { ProjectDetail, StageStatus } from "../../shared/types";
 import { STAGES } from "../../shared/stages";
 import { fieldsFor, METHOD_TEMPLATES } from "../../shared/templates";
 import { STATUS_LABEL } from "./StageNav";
+import { LiteraturePanel } from "./LiteraturePanel";
 
 export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
   detail: ProjectDetail;
@@ -189,6 +190,8 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
       {stageDef.pending && (
         <div className="banner banner-info">未接入提示：{stageDef.pending}</div>
       )}
+
+      {stageKey === "literature" && <LiteraturePanel detail={detail} />}
     </div>
   );
 }

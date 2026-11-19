@@ -157,3 +157,32 @@ body {
 .role-model { flex: 1; }
 .sidebar-bottom { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); }
 .save-failed { color: var(--danger); }
+
+/* ---- 文献面板 ---- */
+.literature-panel { display: flex; flex-direction: column; gap: 14px; }
+.lit-search-row { display: flex; gap: 8px; margin: 6px 0; align-items: center; flex-wrap: wrap; }
+.lit-query { flex: 1; min-width: 260px; }
+.lit-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.lit-suggest .chip { border: 1px dashed var(--border); background: #fafafa; border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
+.lit-outcome { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 8px 0; background: #f8fafc; }
+.lit-candidates { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.lit-candidate { display: flex; gap: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; align-items: flex-start; }
+.lit-candidate-main { flex: 1; }
+.lit-candidate-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.lit-title { font-weight: 600; font-size: 14px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.lit-actions { display: flex; gap: 8px; margin: 8px 0; }
+.lit-cn { display: flex; flex-direction: column; gap: 6px; }
+.lit-cn-row { display: flex; gap: 10px; align-items: center; font-size: 13px; flex-wrap: wrap; }
+.lit-list { display: flex; flex-direction: column; gap: 8px; }
+.lit-item { display: flex; gap: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; align-items: flex-start; }
+.lit-item-main { flex: 1; }
+.lit-item-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.lit-note { font-size: 12px; color: var(--ok-dark, #166534); margin-top: 4px; }
+.lit-log { margin-top: 10px; font-size: 13px; }
+.lit-log summary { cursor: pointer; font-weight: 600; }
+.lit-log-row { border-bottom: 1px dashed var(--border); padding: 4px 0; font-size: 12px; }
+.lit-evidence-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.lit-evidence { border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.modal { background: #fff; border-radius: 12px; padding: 18px; width: min(560px, 92vw); max-height: 82vh; overflow: auto; }
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }

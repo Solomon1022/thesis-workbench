@@ -4,12 +4,35 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ExistingMaterials, Project, ProjectDetail, ProjectInput, StageRecord, StageStatus } from "../shared/types";
 import type { ModelProfile, NetworkConfig, RoleAssignment } from "../shared/settings";
+import type { EvidenceCard, LiteratureItem, SearchLogEntry } from "../shared/literature";
 import { STAGES } from "../shared/stages";
 import { suggestStartStage } from "../shared/templates";
 
 const EMPTY_MATERIALS: ExistingMaterials = { title: "", literature: "", data: "", draft: "", notes: "" };
 
 type Row = Record<string, unknown>;
+function litRow(r: Row): LiteratureItem {
+  return {
+    id: String(r.id),
+    projectId: String(r.project_id),
+    title: String(r.title ?? ""),
+    authors: String(r.authors ?? ""),
+    year: String(r.year ?? ""),
+    venue: String(r.venue ?? ""),
+    doi: String(r.doi ?? ""),
+    url: String(r.url ?? ""),
+    abstract: String(r.abstract ?? ""),
+    source: String(r.source) as LiteratureItem["source"],
+    verifiedStatus: String(r.verified_status) as LiteratureItem["verifiedStatus"],
+    verifiedNote: String(r.verified_note ?? ""),
+    fulltextStatus: String(r.fulltext_status) as LiteratureItem["fulltextStatus"],
+    pdfName: String(r.pdf_name ?? ""),
+    preprint: Number(r.preprint) === 1,
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  };
+}
+
 
 // 打包器会把 node: 前缀剥掉（"sqlite" 裸名在 Electron 中不可解析），
 // 因此通过 process.getBuiltinModule 在运行时加载 node:sqlite。
@@ -88,6 +111,48 @@ export class ThesisDB {
         model TEXT NOT NULL DEFAULT '',
         updated_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS literature_items (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        authors TEXT NOT NULL DEFAULT '',
+        year TEXT NOT NULL DEFAULT '',
+        venue TEXT NOT NULL DEFAULT '',
+        doi TEXT NOT NULL DEFAULT '',
+        url TEXT NOT NULL DEFAULT '',
+        abstract TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'manual',
+        verified_status TEXT NOT NULL DEFAULT 'unverified',
+        verified_note TEXT NOT NULL DEFAULT '',
+        fulltext_status TEXT NOT NULL DEFAULT 'none',
+        pdf_name TEXT NOT NULL DEFAULT '',
+        preprint INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_lit_project ON literature_items(project_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_lit_doi ON literature_items(project_id, doi) WHERE doi <> '';
+      CREATE TABLE IF NOT EXISTS evidence_cards (
+        id TEXT PRIMARY KEY,
+        literature_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        claim TEXT NOT NULL DEFAULT '',
+        location TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_evc_lit ON evidence_cards(literature_id);
+      CREATE TABLE IF NOT EXISTS search_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        query TEXT NOT NULL,
+        result_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'ok',
+        message TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_slog_project ON search_log(project_id);
     `);
   }
 
@@ -161,6 +226,9 @@ export class ThesisDB {
     this.db.exec("BEGIN");
     try {
       this.db.prepare("DELETE FROM stage_content WHERE project_id = ?").run(id);
+    this.db.prepare("DELETE FROM evidence_cards WHERE project_id = ?").run(id);
+    this.db.prepare("DELETE FROM literature_items WHERE project_id = ?").run(id);
+    this.db.prepare("DELETE FROM search_log WHERE project_id = ?").run(id);
       this.db.prepare("DELETE FROM stages WHERE project_id = ?").run(id);
       this.db.prepare("DELETE FROM projects WHERE id = ?").run(id);
       this.db.exec("COMMIT");
@@ -263,6 +331,93 @@ export class ThesisDB {
       `INSERT INTO role_assignments (role_key, provider_key, model, updated_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(role_key) DO UPDATE SET provider_key = excluded.provider_key, model = excluded.model, updated_at = excluded.updated_at`
     ).run(roleKey, providerKey, model, Date.now());
+  }
+
+  // ===== 文献库 =====
+
+  listLiterature(projectId: string): LiteratureItem[] {
+    const rows = this.db.prepare("SELECT * FROM literature_items WHERE project_id = ? ORDER BY created_at DESC").all(projectId) as unknown as Row[];
+    return rows.map(litRow);
+  }
+
+  findLiteratureByDoi(projectId: string, doi: string): LiteratureItem | null {
+    const row = this.db.prepare("SELECT * FROM literature_items WHERE project_id = ? AND doi = ?").get(projectId, doi) as unknown as Row | undefined;
+    return row ? litRow(row) : null;
+  }
+
+  insertLiterature(item: Omit<LiteratureItem, "id" | "createdAt" | "updatedAt">): LiteratureItem {
+    const id = randomUUID();
+    const now = Date.now();
+    this.db.prepare(
+      `INSERT INTO literature_items (id, project_id, title, authors, year, venue, doi, url, abstract, source, verified_status, verified_note, fulltext_status, pdf_name, preprint, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, item.projectId, item.title, item.authors, item.year, item.venue, item.doi, item.url, item.abstract, item.source, item.verifiedStatus, item.verifiedNote, item.fulltextStatus, item.pdfName, item.preprint ? 1 : 0, now, now);
+    return this.getLiterature(id) as LiteratureItem;
+  }
+
+  getLiterature(id: string): LiteratureItem | null {
+    const row = this.db.prepare("SELECT * FROM literature_items WHERE id = ?").get(id) as unknown as Row | undefined;
+    return row ? litRow(row) : null;
+  }
+
+  updateLiterature(id: string, patch: Partial<Pick<LiteratureItem, "title" | "authors" | "year" | "venue" | "doi" | "url" | "abstract" | "verifiedStatus" | "verifiedNote">>): void {
+    const current = this.getLiterature(id);
+    if (!current) return;
+    const next = { ...current, ...patch, updatedAt: Date.now() };
+    this.db.prepare(
+      `UPDATE literature_items SET title=?, authors=?, year=?, venue=?, doi=?, url=?, abstract=?, verified_status=?, verified_note=?, updated_at=? WHERE id=?`
+    ).run(next.title, next.authors, next.year, next.venue, next.doi, next.url, next.abstract, next.verifiedStatus, next.verifiedNote, next.updatedAt, id);
+  }
+
+  setLiteraturePdf(id: string, pdfName: string): void {
+    this.db.prepare("UPDATE literature_items SET pdf_name=?, fulltext_status=?, updated_at=? WHERE id=?").run(pdfName, pdfName ? "pdf_linked" : "none", Date.now(), id);
+  }
+
+  deleteLiterature(id: string): void {
+    this.db.prepare("DELETE FROM evidence_cards WHERE literature_id = ?").run(id);
+    this.db.prepare("DELETE FROM literature_items WHERE id = ?").run(id);
+  }
+
+  listEvidence(literatureId: string): EvidenceCard[] {
+    const rows = this.db.prepare("SELECT * FROM evidence_cards WHERE literature_id = ? ORDER BY created_at DESC").all(literatureId) as unknown as Row[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      literatureId: String(r.literature_id),
+      projectId: String(r.project_id),
+      claim: String(r.claim ?? ""),
+      location: String(r.location ?? ""),
+      createdAt: Number(r.created_at),
+    }));
+  }
+
+  insertEvidence(projectId: string, literatureId: string, claim: string, location: string): EvidenceCard {
+    const card: EvidenceCard = { id: randomUUID(), literatureId, projectId, claim, location, createdAt: Date.now() };
+    this.db.prepare("INSERT INTO evidence_cards (id, literature_id, project_id, claim, location, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(card.id, card.literatureId, card.projectId, card.claim, card.location, card.createdAt);
+    return card;
+  }
+
+  deleteEvidence(id: string): void {
+    this.db.prepare("DELETE FROM evidence_cards WHERE id = ?").run(id);
+  }
+
+  appendSearchLog(projectId: string, source: string, query: string, resultCount: number, status: "ok" | "no_results" | "error", message: string): void {
+    this.db.prepare("INSERT INTO search_log (project_id, source, query, result_count, status, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(projectId, source, query, resultCount, status, message, Date.now());
+  }
+
+  listSearchLog(projectId: string): SearchLogEntry[] {
+    const rows = this.db.prepare("SELECT * FROM search_log WHERE project_id = ? ORDER BY id DESC LIMIT 50").all(projectId) as unknown as Row[];
+    return rows.map((r) => ({
+      id: Number(r.id),
+      projectId: String(r.project_id),
+      source: String(r.source),
+      query: String(r.query),
+      resultCount: Number(r.result_count),
+      status: String(r.status) as SearchLogEntry["status"],
+      message: String(r.message ?? ""),
+      createdAt: Number(r.created_at),
+    }));
   }
 
 }
