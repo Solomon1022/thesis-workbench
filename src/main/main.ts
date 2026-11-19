@@ -8,6 +8,7 @@ import { LiteratureService } from "./literature-service";
 import { Stage4Service } from "./stage4-service";
 import { WritingService } from "./writing-service";
 import { DataService } from "./data-service";
+import { ExportService } from "./export-service";
 
 let mainWindow: BrowserWindow | null = null;
 let db: ThesisDB | null = null;
@@ -75,7 +76,7 @@ if (gotLock) {
     db = new ThesisDB(path.join(app.getPath("userData"), "thesis-workbench.db"));
     const settingsService = new SettingsService(db);
     const literatureService = new LiteratureService(db, settingsService, app.getPath("userData"));
-    registerIpc(db, settingsService, literatureService, new Stage4Service(db, settingsService), new WritingService(db, settingsService), new DataService(db, settingsService, app.getPath("userData")));
+    registerIpc(db, settingsService, literatureService, new Stage4Service(db, settingsService), new WritingService(db, settingsService), new DataService(db, settingsService, app.getPath("userData")), new ExportService(db, app.getPath("userData")));
     createWindow();
   }).catch((error) => {
     console.error("[main] startup error:", error);

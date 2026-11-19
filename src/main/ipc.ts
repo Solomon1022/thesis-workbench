@@ -5,10 +5,11 @@ import type { LiteratureService, LiteratureInput } from "./literature-service";
 import type { Stage4Service } from "./stage4-service";
 import type { WritingService } from "./writing-service";
 import type { DataService } from "./data-service";
+import type { ExportService } from "./export-service";
 import type { ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
 import type { ProjectInput, StageStatus } from "../shared/types";
 
-export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService): void {
+export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService, exportService: ExportService): void {
   ipcMain.handle("runtime", () => ({ platform: process.platform, dbPath: db.path }));
   ipcMain.handle("project:list", () => db.listProjects());
   ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject(input));
@@ -86,6 +87,16 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("review:create", (_e, input: { projectId: string; stageKey: string; section: string; source: string; content: string; suggestion: string }) => db.insertReview(input));
   ipcMain.handle("review:update", (_e, id: string, patch: { stageKey?: string; section?: string; source?: string; content?: string; suggestion?: string; status?: string; resolution?: string }) => db.updateReview(id, patch));
   ipcMain.handle("review:delete", (_e, id: string) => db.deleteReview(id));
+
+  // 阶段 6：备份 / 快照 / 导出
+  ipcMain.handle("export:backup", (_e, projectId: string) => exportService.exportBackup(projectId));
+  ipcMain.handle("export:backupTo", (_e, projectId: string, targetPath: string) => exportService.writeBackupZip(projectId, targetPath));
+  ipcMain.handle("export:restore", () => exportService.restoreBackup());
+  ipcMain.handle("export:restoreFrom", (_e, zipPath: string) => exportService.restoreFromZip(zipPath));
+  ipcMain.handle("snapshot:create", (_e, projectId: string, name: string) => db.insertProjectSnapshot(projectId, name, JSON.stringify(exportService.buildBundle(projectId))));
+  ipcMain.handle("snapshot:list", (_e, projectId: string) => db.listProjectSnapshots(projectId));
+  ipcMain.handle("snapshot:delete", (_e, id: string) => db.deleteProjectSnapshot(id));
+  ipcMain.handle("snapshot:restore", (_e, id: string) => exportService.restoreSnapshot(id));
 
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

@@ -153,6 +153,7 @@ export function App() {
                 stageKey={currentStage}
                 onStatus={(stageKey, status, reason) => void handleStatus(stageKey, status, reason)}
                 onContent={handleContent}
+                onProjectRestored={() => void refreshProjects()}
               />
             )}
           </main>

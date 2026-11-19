@@ -74,6 +74,14 @@ declare global {
       reviewCreate(input: { projectId: string; stageKey: string; section: string; source: string; content: string; suggestion: string }): Promise<string>;
       reviewUpdate(id: string, patch: { stageKey?: string; section?: string; source?: string; content?: string; suggestion?: string; status?: string; resolution?: string }): Promise<void>;
       reviewDelete(id: string): Promise<void>;
+      exportBackup(projectId: string): Promise<{ canceled: true } | { path: string; size: number }>;
+      exportBackupTo(projectId: string, targetPath: string): Promise<number>;
+      exportRestore(): Promise<{ canceled: true } | { outcome: { projectId: string; projectName: string; missingAttachments: string[] }; path: string }>;
+      exportRestoreFrom(zipPath: string): Promise<{ projectId: string; projectName: string; missingAttachments: string[] }>;
+      snapshotCreate(projectId: string, name: string): Promise<string>;
+      snapshotList(projectId: string): Promise<Array<{ id: string; name: string; contentJson: string; createdAt: number }>>;
+      snapshotDelete(id: string): Promise<void>;
+      snapshotRestore(id: string): Promise<{ projectId: string; projectName: string; missingAttachments: string[] }>;
     };
   }
 }

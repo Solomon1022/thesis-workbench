@@ -68,6 +68,14 @@ const api = {
   reviewCreate: (input: { projectId: string; stageKey: string; section: string; source: string; content: string; suggestion: string }) => ipcRenderer.invoke("review:create", input),
   reviewUpdate: (id: string, patch: { stageKey?: string; section?: string; source?: string; content?: string; suggestion?: string; status?: string; resolution?: string }) => ipcRenderer.invoke("review:update", id, patch),
   reviewDelete: (id: string) => ipcRenderer.invoke("review:delete", id),
+  exportBackup: (projectId: string) => ipcRenderer.invoke("export:backup", projectId),
+  exportBackupTo: (projectId: string, targetPath: string) => ipcRenderer.invoke("export:backupTo", projectId, targetPath),
+  exportRestore: () => ipcRenderer.invoke("export:restore"),
+  exportRestoreFrom: (zipPath: string) => ipcRenderer.invoke("export:restoreFrom", zipPath),
+  snapshotCreate: (projectId: string, name: string) => ipcRenderer.invoke("snapshot:create", projectId, name),
+  snapshotList: (projectId: string) => ipcRenderer.invoke("snapshot:list", projectId),
+  snapshotDelete: (id: string) => ipcRenderer.invoke("snapshot:delete", id),
+  snapshotRestore: (id: string) => ipcRenderer.invoke("snapshot:restore", id),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);

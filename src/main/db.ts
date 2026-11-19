@@ -235,6 +235,15 @@ export class ThesisDB {
         updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_rev_project ON reviews(project_id);
+
+      CREATE TABLE IF NOT EXISTS project_snapshots (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        content_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_ps_project ON project_snapshots(project_id);
     `);
   }
 
@@ -486,9 +495,9 @@ export class ThesisDB {
     this.db.prepare("DELETE FROM evidence_cards WHERE id = ?").run(id);
   }
 
-  appendSearchLog(projectId: string, source: string, query: string, resultCount: number, status: "ok" | "no_results" | "error", message: string): void {
+  appendSearchLog(projectId: string, source: string, query: string, resultCount: number, status: "ok" | "no_results" | "error", message: string, createdAt?: number): void {
     this.db.prepare("INSERT INTO search_log (project_id, source, query, result_count, status, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(projectId, source, query, resultCount, status, message, Date.now());
+      .run(projectId, source, query, resultCount, status, message, createdAt ?? Date.now());
   }
 
   listSearchLog(projectId: string): SearchLogEntry[] {
@@ -714,11 +723,11 @@ export class ThesisDB {
 
   // ===== 阶段 6：审阅意见 =====
 
-  insertReview(input: { projectId: string; stageKey: string; section: string; source: string; content: string; suggestion: string }): string {
+  insertReview(input: { projectId: string; stageKey: string; section: string; source: string; content: string; suggestion: string; status?: string; resolution?: string; createdAt?: number }): string {
     const id = randomUUID();
-    const now = Date.now();
-    this.db.prepare("INSERT INTO reviews (id, project_id, stage_key, section, source, content, suggestion, status, resolution, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?)")
-      .run(id, input.projectId, input.stageKey, input.section, input.source, input.content, input.suggestion, now, now);
+    const now = input.createdAt ?? Date.now();
+    this.db.prepare("INSERT INTO reviews (id, project_id, stage_key, section, source, content, suggestion, status, resolution, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, input.projectId, input.stageKey, input.section, input.source, input.content, input.suggestion, input.status ?? "pending", input.resolution ?? "", now, now);
     return id;
   }
 
@@ -756,6 +765,41 @@ export class ThesisDB {
 
   deleteReview(id: string): void {
     this.db.prepare("DELETE FROM reviews WHERE id = ?").run(id);
+  }
+
+  // ===== 阶段 6：项目快照 =====
+
+  insertProjectSnapshot(projectId: string, name: string, contentJson: string): string {
+    const id = randomUUID();
+    this.db.prepare("INSERT INTO project_snapshots (id, project_id, name, content_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(id, projectId, name, contentJson, Date.now());
+    return id;
+  }
+
+  listProjectSnapshots(projectId: string): Array<{ id: string; name: string; contentJson: string; createdAt: number }> {
+    const rows = this.db.prepare("SELECT * FROM project_snapshots WHERE project_id = ? ORDER BY created_at DESC").all(projectId) as unknown as Row[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: String(r.name ?? ""),
+      contentJson: String(r.content_json ?? "{}"),
+      createdAt: Number(r.created_at),
+    }));
+  }
+
+  getProjectSnapshot(id: string): { id: string; projectId: string; name: string; contentJson: string; createdAt: number } | null {
+    const r = this.db.prepare("SELECT * FROM project_snapshots WHERE id = ?").get(id) as unknown as Row | undefined;
+    if (!r) return null;
+    return {
+      id: String(r.id),
+      projectId: String(r.project_id),
+      name: String(r.name ?? ""),
+      contentJson: String(r.content_json ?? "{}"),
+      createdAt: Number(r.created_at),
+    };
+  }
+
+  deleteProjectSnapshot(id: string): void {
+    this.db.prepare("DELETE FROM project_snapshots WHERE id = ?").run(id);
   }
 
 }

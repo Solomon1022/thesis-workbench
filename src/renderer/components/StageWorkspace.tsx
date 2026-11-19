@@ -8,12 +8,14 @@ import { DesignAssist, ProposalPanel, TopicPanel } from "./Stage4Panels";
 import { WritingPanel } from "./WritingPanel";
 import { AnalysisPanel, DataPanel } from "./DataPanels";
 import { ReviewPanel } from "./ReviewPanel";
+import { ExportPanel } from "./ExportPanel";
 
-export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
+export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjectRestored }: {
   detail: ProjectDetail;
   stageKey: string;
   onStatus: (stageKey: string, status: StageStatus, skipReason: string) => void;
   onContent: (stageKey: string, fieldKey: string, value: string) => Promise<boolean>;
+  onProjectRestored: () => void;
 }) {
   const stageDef = STAGES.find((s) => s.key === stageKey);
   const stageIndex = STAGES.findIndex((s) => s.key === stageKey);
@@ -231,6 +233,8 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
       {stageKey === "analysis" && <AnalysisPanel detail={detail} />}
 
       {stageKey === "revision" && <ReviewPanel detail={detail} />}
+
+      {stageKey === "archive" && <ExportPanel detail={detail} onRestored={() => onProjectRestored()} />}
     </div>
   );
 }
