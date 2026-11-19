@@ -3,6 +3,7 @@ import type { Project, ProjectDetail, ProjectInput, StageStatus } from "../share
 import { METHOD_TEMPLATES } from "../shared/templates";
 import { ProjectHome } from "./components/ProjectHome";
 import { ProjectWizard } from "./components/ProjectWizard";
+import { SettingsView } from "./components/SettingsView";
 import { StageNav } from "./components/StageNav";
 import { StageWorkspace } from "./components/StageWorkspace";
 
@@ -13,6 +14,7 @@ export function App() {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [currentStage, setCurrentStage] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,6 +31,7 @@ export function App() {
     if (!a) return;
     setDetail(await a.getProject(id));
     setCurrentStage(null);
+    setSettingsOpen(false);
   }, []);
 
   const refreshDetail = useCallback(async (id: string) => {
@@ -124,9 +127,16 @@ export function App() {
           ))}
         </div>
         {error && <div className="banner banner-error">{error}</div>}
+        <div className="sidebar-bottom">
+          <button className="btn btn-block" onClick={() => { setSettingsOpen(true); }}>服务与模型设置</button>
+        </div>
       </aside>
 
-      {detail ? (
+      {settingsOpen ? (
+        <main className="workspace">
+          <SettingsView onBack={() => setSettingsOpen(false)} />
+        </main>
+      ) : detail ? (
         <>
           <StageNav
             stages={detail.stages}

@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { ThesisDB } from "./db";
 import { registerIpc } from "./ipc";
+import { SettingsService } from "./settings-service";
 
 let mainWindow: BrowserWindow | null = null;
 let db: ThesisDB | null = null;
@@ -68,7 +69,7 @@ if (gotLock) {
   });
   app.whenReady().then(() => {
     db = new ThesisDB(path.join(app.getPath("userData"), "thesis-workbench.db"));
-    registerIpc(db);
+    registerIpc(db, new SettingsService(db));
     createWindow();
   }).catch((error) => {
     console.error("[main] startup error:", error);

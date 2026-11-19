@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ExistingMaterials, Project, ProjectDetail, ProjectInput, StageRecord, StageStatus } from "../shared/types";
+import type { ModelProfile, NetworkConfig, RoleAssignment } from "../shared/settings";
 import { STAGES } from "../shared/stages";
 import { suggestStartStage } from "../shared/templates";
 
@@ -64,6 +65,28 @@ export class ThesisDB {
         value TEXT NOT NULL DEFAULT '',
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (project_id, stage_key, field_key)
+      );
+
+      CREATE TABLE IF NOT EXISTS model_profiles (
+        provider_key TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        api_style TEXT NOT NULL DEFAULT 'openai',
+        network_mode TEXT NOT NULL DEFAULT 'direct',
+        proxy_url TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS model_secrets (
+        provider_key TEXT PRIMARY KEY,
+        ciphertext TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS role_assignments (
+        role_key TEXT PRIMARY KEY,
+        provider_key TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
       );
     `);
   }
@@ -178,4 +201,68 @@ export class ThesisDB {
       materials, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
     };
   }
+  // ===== 模型与角色设置 =====
+
+  listModelProfiles(): Array<ModelProfile & NetworkConfig> {
+    const rows = this.db.prepare("SELECT * FROM model_profiles").all() as unknown as Row[];
+    return rows.map((r) => ({
+      providerKey: String(r.provider_key),
+      name: String(r.name),
+      baseUrl: String(r.base_url ?? ""),
+      model: String(r.model ?? ""),
+      apiStyle: String(r.api_style) as "openai" | "anthropic",
+      mode: String(r.network_mode) as NetworkConfig["mode"],
+      proxyUrl: String(r.proxy_url ?? ""),
+    }));
+  }
+
+  upsertModelProfile(profile: ModelProfile, network: NetworkConfig): void {
+    this.db.prepare(
+      `INSERT INTO model_profiles (provider_key, name, base_url, model, api_style, network_mode, proxy_url, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(provider_key) DO UPDATE SET name = excluded.name, base_url = excluded.base_url, model = excluded.model,
+         api_style = excluded.api_style, network_mode = excluded.network_mode, proxy_url = excluded.proxy_url, updated_at = excluded.updated_at`
+    ).run(profile.providerKey, profile.name, profile.baseUrl, profile.model, profile.apiStyle, network.mode, network.proxyUrl, Date.now());
+  }
+
+  /** 返回密文（base64）。加解密在服务层用 safeStorage 完成，数据层不接触明文。 */
+  getModelSecret(providerKey: string): string {
+    const row = this.db.prepare("SELECT ciphertext FROM model_secrets WHERE provider_key = ?").get(providerKey) as unknown as Row | undefined;
+    return row ? String(row.ciphertext ?? "") : "";
+  }
+
+  setModelSecret(providerKey: string, ciphertext: string): void {
+    this.db.prepare(
+      `INSERT INTO model_secrets (provider_key, ciphertext, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(provider_key) DO UPDATE SET ciphertext = excluded.ciphertext, updated_at = excluded.updated_at`
+    ).run(providerKey, ciphertext, Date.now());
+  }
+
+  deleteModelSecret(providerKey: string): void {
+    this.db.prepare("DELETE FROM model_secrets WHERE provider_key = ?").run(providerKey);
+  }
+
+  secretStatus(): Record<string, boolean> {
+    const rows = this.db.prepare("SELECT provider_key, ciphertext FROM model_secrets").all() as unknown as Row[];
+    const out: Record<string, boolean> = {};
+    for (const r of rows) out[String(r.provider_key)] = String(r.ciphertext ?? "").length > 0;
+    return out;
+  }
+
+  listRoleAssignments(): RoleAssignment[] {
+    const rows = this.db.prepare("SELECT * FROM role_assignments").all() as unknown as Row[];
+    return rows.map((r) => ({
+      roleKey: String(r.role_key) as RoleAssignment["roleKey"],
+      providerKey: String(r.provider_key ?? ""),
+      model: String(r.model ?? ""),
+    }));
+  }
+
+  setRoleAssignment(roleKey: string, providerKey: string, model: string): void {
+    this.db.prepare(
+      `INSERT INTO role_assignments (role_key, provider_key, model, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(role_key) DO UPDATE SET provider_key = excluded.provider_key, model = excluded.model, updated_at = excluded.updated_at`
+    ).run(roleKey, providerKey, model, Date.now());
+  }
+
 }

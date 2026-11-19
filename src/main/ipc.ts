@@ -1,8 +1,10 @@
 import { ipcMain } from "electron";
 import type { ThesisDB } from "./db";
+import type { SettingsService } from "./settings-service";
+import type { ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
 import type { ProjectInput, StageStatus } from "../shared/types";
 
-export function registerIpc(db: ThesisDB): void {
+export function registerIpc(db: ThesisDB, settings: SettingsService): void {
   ipcMain.handle("runtime", () => ({ platform: process.platform, dbPath: db.path }));
   ipcMain.handle("project:list", () => db.listProjects());
   ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject(input));
@@ -13,4 +15,19 @@ export function registerIpc(db: ThesisDB): void {
     db.setStageStatus(projectId, stageKey, status, skipReason));
   ipcMain.handle("stage:setContent", (_e, projectId: string, stageKey: string, fieldKey: string, value: string) =>
     db.setStageContent(projectId, stageKey, fieldKey, value));
+
+  // 服务与模型设置
+  ipcMain.handle("settings:get", () => settings.getSettings());
+  ipcMain.handle("settings:saveProfile", (_e, profile: ModelProfile, network: NetworkConfig) => {
+    settings.saveProfile(profile, network);
+    return settings.getSettings();
+  });
+  ipcMain.handle("settings:saveSecret", (_e, providerKey: string, apiKey: string) => settings.saveSecret(providerKey, apiKey));
+  ipcMain.handle("settings:deleteSecret", (_e, providerKey: string) => settings.deleteSecret(providerKey));
+  ipcMain.handle("settings:saveRole", (_e, roleKey: RoleKey, providerKey: string, model: string) => {
+    settings.saveRole(roleKey, providerKey, model);
+    return settings.getSettings();
+  });
+  ipcMain.handle("settings:testConnection", (_e, testId: string, providerKey: string) => settings.testConnection(testId, providerKey));
+  ipcMain.handle("settings:cancelTest", (_e, testId: string) => settings.cancelTest(testId));
 }
