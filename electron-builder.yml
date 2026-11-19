@@ -1,0 +1,28 @@
+# 暂用名与占位 appId；正式品牌、仓库名与许可证尚未确定（阶段 7 决定）
+# SQLite 使用 Electron 内置 Node 的 node:sqlite，无原生模块，无需 npmRebuild
+appId: com.local.thesisworkbench
+productName: Thesis Workbench
+asar: true
+npmRebuild: false
+directories:
+  output: release
+files:
+  - dist-electron/**
+  - dist/**
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+nsis:
+  artifactName: ThesisWorkbench-Setup-${version}-${arch}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Thesis Workbench
+portable:
+  artifactName: ThesisWorkbench-Portable-${version}-${arch}.${ext}
