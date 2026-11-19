@@ -80,8 +80,12 @@ export async function chat(req: ChatRequest): Promise<string> {
       const content = (data.content as Array<{ type?: string; text?: string }> | undefined) ?? [];
       return content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
     }
-    const choices = data.choices as Array<{ message?: { content?: string } }> | undefined;
-    return choices?.[0]?.message?.content ?? "";
+    const choices = data.choices as Array<{ message?: { content?: string; reasoning_content?: string } }> | undefined;
+    const message = choices?.[0]?.message;
+    if (!message) return "";
+    if (message.content && message.content.trim()) return message.content;
+    // 推理型模型（如 deepseek-v4-pro）：思考过程在 reasoning_content，最终答案可能为空时回退
+    return message.reasoning_content ?? "";
   } catch { return ""; }
 }
 

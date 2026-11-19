@@ -33,7 +33,48 @@ export function extractJson(text: string): unknown | null {
       }
     }
   }
-  return null;
+  // 截断容错：推理型模型可能因 max_tokens 被截断在数组中间；
+  // 逐个解析已完成的 {…} 对象，丢弃未完成的尾元素。
+  return parseObjectList(cleaned);
+}
+
+/** 从可能被截断的 JSON 数组中提取所有完整对象 */
+function parseObjectList(text: string): unknown[] | null {
+  const start = text.indexOf("[");
+  if (start < 0) return null;
+  const out: unknown[] = [];
+  let i = start + 1;
+  while (i < text.length) {
+    while (i < text.length && (text[i] === "," || /\s/.test(text[i]))) i++;
+    if (i >= text.length || text[i] === "]") break;
+    if (text[i] !== "{") { i++; continue; }
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    let j = i;
+    for (; j < text.length; j++) {
+      const ch = text[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === "\\") esc = true;
+        else if (ch === "\"") inStr = false;
+        continue;
+      }
+      if (ch === "\"") inStr = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    if (j >= text.length) break;
+    try {
+      const obj = JSON.parse(text.slice(i, j + 1));
+      if (obj && typeof obj === "object") out.push(obj);
+    } catch { /* 跳过损坏元素 */ }
+    i = j + 1;
+  }
+  return out.length > 0 ? out : null;
 }
 
 interface DirectionInput {
@@ -93,8 +134,8 @@ export class Stage4Service {
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      maxTokens: 2000,
-      signal: AbortSignal.timeout(60_000),
+      maxTokens: 8000,
+      signal: AbortSignal.timeout(240_000),
     });
   }
 
@@ -107,7 +148,7 @@ export class Stage4Service {
       "你是论文选题助手。基于用户输入与提供的真实文献列表，生成 3-5 个候选研究方向。",
       "只输出 JSON 数组，不要任何解释。每个元素格式：",
       '{"question":"研究问题（一句话，可检验、有边界）","basis":[文献序号数组，只能引用下方列表中的序号；没有依据写 []],"data_path":"数据/材料获取路径","feasibility":"可行性","limitations":"限制与风险"}',
-      "严格禁止：编造文献、作者、DOI、数据。引用列表之外的依据一律不写进 basis，并在 limitations 中注明「来源待核验」。",
+      "可以基于领域常识提出研究问题与数据路径，但不得编造任何文献、作者、DOI、数据与统计结果；引用列表之外的依据一律不写进 basis，并在 limitations 中注明「来源待核验」。不要因为文献列表不相关就拒绝给出方向。",
     ].join("\n");
     const user = "学科/专业：" + inputs.discipline + "\n兴趣：" + inputs.interests + "\n研究对象：" + inputs.object + "\n时间条件：" + inputs.timeCondition + "\n数据条件：" + inputs.dataCondition + "\n\n文献列表（只能引用其中的序号）：\n" + litText;
     const content = await this.ask(role, system, user);
@@ -173,12 +214,13 @@ export class Stage4Service {
     const isQuestionnaire = method === "questionnaire";
     const system = [
       "你是研究设计助手。按给定字段字典为每个字段起草内容。",
+      "优先基于「已保存候选方向」确定研究问题草稿：选择其中一条最可行的方向直接改写为研究问题，不要因为设计字段为空就只写「待核验」或拒绝作答。",
       "只输出 JSON，不要任何解释：",
       '{"fields":{"字段key":"草稿文本"},"hypotheses":[]}',
       isQuestionnaire
-        ? "本方法是问卷定量研究：hypotheses 输出假设卡片数组 [{\"number\":\"H1\",\"statement\":\"假设陈述\",\"iv\":\"自变量\",\"dv\":\"因变量\",\"basis\":\"依据（来自文献列表或标注待核验）\"}]。不强制中介、调节或控制变量；横截面相关不写成因果。"
+        ? "本方法是问卷定量研究：hypotheses 基于研究问题草稿推导 2-4 条假设卡片 [{\"number\":\"H1\",\"statement\":\"假设陈述\",\"iv\":\"自变量\",\"dv\":\"因变量\",\"basis\":\"依据（文献列表序号+简述，或写「理论推导，待核验」）\"}]。不强制中介、调节或控制变量；横截面相关不写成因果；必须给出具体假设而不是空数组。"
         : "非问卷方法 hypotheses 输出空数组 []。",
-      "严格禁止：编造数据、样本量、文献、性能数字。不确定的内容写明「待核验」。只能引用提供的文献。",
+      "严格禁止：编造数据、样本量、文献、性能数字与引用。文献引用只能来自提供的列表；其余内容写明「待核验」或「理论推导，待核验」，但仍要给出具体可用的草稿内容。",
     ].join("\n");
     const user = "研究方法：" + methodLabel + "\n字段字典：" + fieldDict + "\n已有输入：\n" + currentText + "\n\n选题阶段内容：\n" + topicText + "\n\n已保存候选方向：\n" + (savedDirections || "（无）") + "\n\n文献依据：\n" + litText;
     const content = await this.ask(role, system, user);
