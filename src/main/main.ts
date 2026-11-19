@@ -1,10 +1,24 @@
 import { app, BrowserWindow, shell } from "electron";
+import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { ThesisDB } from "./db";
 import { registerIpc } from "./ipc";
 
 let mainWindow: BrowserWindow | null = null;
 let db: ThesisDB | null = null;
+
+// 缓解部分机器/远程桌面环境下 GPU 进程触发的 0x80000003 崩溃（CHECK 失败）。
+// 本应用以表单为主，软件渲染无可见性能影响。
+app.disableHardwareAcceleration();
+
+// 崩溃留痕：GUI 进程没有控制台，把主进程异常与子进程退出写入 userData/crash.log 便于排查。
+const crashLogPath = () => path.join(app.getPath("userData"), "crash.log");
+function logCrash(message: string): void {
+  try { appendFileSync(crashLogPath(), new Date().toISOString() + " " + message + "\n"); } catch { /* ignore */ }
+}
+process.on("uncaughtException", (error) => logCrash("uncaughtException: " + String((error as Error)?.stack ?? error)));
+app.on("render-process-gone", (_event, _wc, details) => logCrash("render-process-gone: " + details.reason + " exitCode=" + details.exitCode));
+app.on("child-process-gone", (_event, details) => logCrash("child-process-gone: " + details.type + " " + details.reason + " exitCode=" + details.exitCode));
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();

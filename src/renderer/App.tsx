@@ -63,13 +63,15 @@ export function App() {
     await refreshDetail(detail.project.id);
   }, [detail, refreshDetail]);
 
-  const handleContent = useCallback(async (stageKey: string, fieldKey: string, value: string) => {
+  const handleContent = useCallback(async (stageKey: string, fieldKey: string, value: string): Promise<boolean> => {
     const a = api();
-    if (!a || !detail) return;
+    if (!a || !detail) return false;
     try {
       await a.setStageContent(detail.project.id, stageKey, fieldKey, value);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     }
   }, [detail]);
 
@@ -130,7 +132,7 @@ export function App() {
                 detail={detail}
                 stageKey={currentStage}
                 onStatus={(stageKey, status, reason) => void handleStatus(stageKey, status, reason)}
-                onContent={(stageKey, fieldKey, value) => void handleContent(stageKey, fieldKey, value)}
+                onContent={handleContent}
               />
             )}
           </main>

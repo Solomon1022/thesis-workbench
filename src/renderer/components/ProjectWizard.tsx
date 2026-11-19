@@ -15,15 +15,22 @@ export function ProjectWizard({ busy, onCancel, onCreate }: {
   const [education, setEducation] = useState("本科");
   const [deadline, setDeadline] = useState("");
   const [materials, setMaterials] = useState<ExistingMaterials>({ ...EMPTY });
+  const [materialEnabled, setMaterialEnabled] = useState<Record<keyof ExistingMaterials, boolean>>({
+    title: false, literature: false, data: false, draft: false, notes: false,
+  });
   const [err, setErr] = useState("");
 
   const toggleDiscipline = (d: string) =>
     setDisciplines((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
 
   const toggleMaterial = (k: "title" | "literature" | "data" | "draft" | "notes") =>
-    setMaterials((prev) => ({ ...prev, [k]: prev[k] === "" ? " " : "" }));
+    setMaterialEnabled((prev) => {
+      const enabled = !prev[k];
+      if (!enabled) setMaterials((current) => ({ ...current, [k]: "" }));
+      return { ...prev, [k]: enabled };
+    });
 
-  const hasMaterial = (k: keyof ExistingMaterials) => materials[k].trim() !== "";
+  const hasMaterial = (k: keyof ExistingMaterials) => materialEnabled[k];
 
   const submit = () => {
     if (!name.trim()) return setErr("请填写项目名称");
@@ -95,7 +102,7 @@ export function ProjectWizard({ busy, onCancel, onCreate }: {
                 <textarea
                   className="textarea"
                   placeholder="粘贴或简要描述内容"
-                  value={materials[k] === " " ? "" : materials[k]}
+                  value={materials[k]}
                   onChange={(e) => setMaterials((prev) => ({ ...prev, [k]: e.target.value }))}
                 />
               )}
@@ -105,7 +112,7 @@ export function ProjectWizard({ busy, onCancel, onCreate }: {
             <label className="check-row"><input type="checkbox" checked={hasMaterial("notes")} onChange={() => toggleMaterial("notes")} />备注</label>
             {hasMaterial("notes") && (
               <textarea className="textarea" placeholder="导师要求、学校规范、其他说明"
-                value={materials.notes === " " ? "" : materials.notes}
+                value={materials.notes}
                 onChange={(e) => setMaterials((prev) => ({ ...prev, notes: e.target.value }))} />
             )}
           </div>

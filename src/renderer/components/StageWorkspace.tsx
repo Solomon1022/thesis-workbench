@@ -8,7 +8,7 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
   detail: ProjectDetail;
   stageKey: string;
   onStatus: (stageKey: string, status: StageStatus, skipReason: string) => void;
-  onContent: (stageKey: string, fieldKey: string, value: string) => void;
+  onContent: (stageKey: string, fieldKey: string, value: string) => Promise<boolean>;
 }) {
   const stageDef = STAGES.find((s) => s.key === stageKey);
   const stageIndex = STAGES.findIndex((s) => s.key === stageKey);
@@ -42,9 +42,11 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
     setDirty(true);
     const t = timers.current.get(fieldKey);
     if (t) window.clearTimeout(t);
-    timers.current.set(fieldKey, window.setTimeout(() => {
-      onContent(stageKey, fieldKey, value);
-      setDirty(false);
+    timers.current.set(fieldKey, window.setTimeout(async () => {
+      const saved = await onContent(stageKey, fieldKey, value);
+      if (!saved) return;
+      timers.current.delete(fieldKey);
+      setDirty(timers.current.size > 0);
       setSavedAt(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
     }, 500));
   };
