@@ -2,10 +2,11 @@ import { ipcMain, shell } from "electron";
 import type { ThesisDB } from "./db";
 import type { SettingsService } from "./settings-service";
 import type { LiteratureService, LiteratureInput } from "./literature-service";
+import type { Stage4Service } from "./stage4-service";
 import type { ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
 import type { ProjectInput, StageStatus } from "../shared/types";
 
-export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService): void {
+export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service): void {
   ipcMain.handle("runtime", () => ({ platform: process.platform, dbPath: db.path }));
   ipcMain.handle("project:list", () => db.listProjects());
   ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject(input));
@@ -49,6 +50,20 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("literature:deleteEvidence", (_e, id: string) => literature.deleteEvidence(id));
   ipcMain.handle("literature:searchLog", (_e, projectId: string) => db.listSearchLog(projectId));
   ipcMain.handle("literature:genQueries", (_e, topic: string) => literature.genQueries(topic));
+
+  // 阶段 4：选题、研究设计与开题
+  ipcMain.handle("stage4:generateDirections", (_e, projectId: string, inputs: unknown) => stage4.generateDirections(projectId, inputs as Parameters<Stage4Service["generateDirections"]>[1]));
+  ipcMain.handle("stage4:saveDirection", (_e, projectId: string, d: unknown) => stage4.saveDirection(projectId, d as Parameters<Stage4Service["saveDirection"]>[1]));
+  ipcMain.handle("stage4:listDirections", (_e, projectId: string) => stage4.listDirections(projectId));
+  ipcMain.handle("stage4:deleteDirection", (_e, id: string) => stage4.deleteDirection(id));
+  ipcMain.handle("stage4:generateDesignDraft", (_e, projectId: string) => stage4.generateDesignDraft(projectId));
+  ipcMain.handle("stage4:generateProposal", (_e, projectId: string) => stage4.generateProposal(projectId));
+  ipcMain.handle("stage4:saveVersion", (_e, projectId: string, stageKey: string, contentJson: string, note: string) => stage4.saveVersion(projectId, stageKey, contentJson, note));
+  ipcMain.handle("stage4:listVersions", (_e, projectId: string, stageKey: string) => stage4.listVersions(projectId, stageKey));
+  ipcMain.handle("stage4:restoreVersion", (_e, versionId: number) => stage4.restoreVersion(versionId));
+  ipcMain.handle("stage4:replaceHypotheses", (_e, projectId: string, cards: unknown) => stage4.replaceHypotheses(projectId, cards as Parameters<Stage4Service["replaceHypotheses"]>[1]));
+  ipcMain.handle("stage4:listHypotheses", (_e, projectId: string) => stage4.listHypotheses(projectId));
+  ipcMain.handle("stage4:deleteHypothesis", (_e, id: string) => stage4.deleteHypothesis(id));
 
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

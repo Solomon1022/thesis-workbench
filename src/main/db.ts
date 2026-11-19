@@ -159,6 +159,40 @@ export class ThesisDB {
         value TEXT NOT NULL DEFAULT '',
         updated_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS stage_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT NOT NULL,
+        stage_key TEXT NOT NULL,
+        version_no INTEGER NOT NULL,
+        content_json TEXT NOT NULL DEFAULT '{}',
+        note TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_sv_project ON stage_versions(project_id, stage_key);
+      CREATE TABLE IF NOT EXISTS topic_candidates (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        question TEXT NOT NULL DEFAULT '',
+        basis_lit_ids TEXT NOT NULL DEFAULT '[]',
+        data_path TEXT NOT NULL DEFAULT '',
+        feasibility TEXT NOT NULL DEFAULT '',
+        limitations TEXT NOT NULL DEFAULT '',
+        ai_generated INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS hypothesis_cards (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        number TEXT NOT NULL DEFAULT '',
+        statement TEXT NOT NULL DEFAULT '',
+        iv TEXT NOT NULL DEFAULT '',
+        dv TEXT NOT NULL DEFAULT '',
+        basis TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_hc_project ON hypothesis_cards(project_id);
     `);
   }
 
@@ -235,6 +269,9 @@ export class ThesisDB {
     this.db.prepare("DELETE FROM evidence_cards WHERE project_id = ?").run(id);
     this.db.prepare("DELETE FROM literature_items WHERE project_id = ?").run(id);
     this.db.prepare("DELETE FROM search_log WHERE project_id = ?").run(id);
+    this.db.prepare("DELETE FROM stage_versions WHERE project_id = ?").run(id);
+    this.db.prepare("DELETE FROM topic_candidates WHERE project_id = ?").run(id);
+    this.db.prepare("DELETE FROM hypothesis_cards WHERE project_id = ?").run(id);
       this.db.prepare("DELETE FROM stages WHERE project_id = ?").run(id);
       this.db.prepare("DELETE FROM projects WHERE id = ?").run(id);
       this.db.exec("COMMIT");
@@ -438,6 +475,108 @@ export class ThesisDB {
       `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
     ).run(key, value, Date.now());
+  }
+
+  // ===== 阶段 4：版本、候选方向、假设卡片 =====
+
+  nextStageVersionNo(projectId: string, stageKey: string): number {
+    const row = this.db.prepare("SELECT MAX(version_no) AS m FROM stage_versions WHERE project_id = ? AND stage_key = ?").get(projectId, stageKey) as unknown as Row | undefined;
+    return Number(row?.m ?? 0) + 1;
+  }
+
+  saveStageVersion(projectId: string, stageKey: string, contentJson: string, note: string): number {
+    const no = this.nextStageVersionNo(projectId, stageKey);
+    this.db.prepare("INSERT INTO stage_versions (project_id, stage_key, version_no, content_json, note, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(projectId, stageKey, no, contentJson, note, Date.now());
+    return no;
+  }
+
+  listStageVersions(projectId: string, stageKey: string): Array<{ id: number; versionNo: number; contentJson: string; note: string; createdAt: number }> {
+    const rows = this.db.prepare("SELECT * FROM stage_versions WHERE project_id = ? AND stage_key = ? ORDER BY version_no DESC").all(projectId, stageKey) as unknown as Row[];
+    return rows.map((r) => ({
+      id: Number(r.id),
+      versionNo: Number(r.version_no),
+      contentJson: String(r.content_json ?? "{}"),
+      note: String(r.note ?? ""),
+      createdAt: Number(r.created_at),
+    }));
+  }
+
+
+  getStageVersion(id: number): { id: number; projectId: string; stageKey: string; versionNo: number; contentJson: string; note: string; createdAt: number } | null {
+    const row = this.db.prepare("SELECT * FROM stage_versions WHERE id = ?").get(id) as unknown as Row | undefined;
+    if (!row) return null;
+    return {
+      id: Number(row.id),
+      projectId: String(row.project_id),
+      stageKey: String(row.stage_key),
+      versionNo: Number(row.version_no),
+      contentJson: String(row.content_json ?? "{}"),
+      note: String(row.note ?? ""),
+      createdAt: Number(row.created_at),
+    };
+  }
+
+  // ---- 候选方向 ----
+
+  insertTopicCandidate(input: { projectId: string; question: string; basisLitIds: string[]; dataPath: string; feasibility: string; limitations: string; aiGenerated: boolean }): void {
+    this.db.prepare("INSERT INTO topic_candidates (id, project_id, question, basis_lit_ids, data_path, feasibility, limitations, ai_generated, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(randomUUID(), input.projectId, input.question, JSON.stringify(input.basisLitIds), input.dataPath, input.feasibility, input.limitations, input.aiGenerated ? 1 : 0, Date.now());
+  }
+
+  listTopicCandidates(projectId: string): Array<{ id: string; question: string; basisLitIds: string[]; dataPath: string; feasibility: string; limitations: string; aiGenerated: boolean; createdAt: number }> {
+    const rows = this.db.prepare("SELECT * FROM topic_candidates WHERE project_id = ? ORDER BY created_at DESC").all(projectId) as unknown as Row[];
+    return rows.map((r) => {
+      let ids: string[] = [];
+      try { ids = JSON.parse(String(r.basis_lit_ids ?? "[]")) as string[]; } catch { ids = []; }
+      return {
+        id: String(r.id),
+        question: String(r.question ?? ""),
+        basisLitIds: ids,
+        dataPath: String(r.data_path ?? ""),
+        feasibility: String(r.feasibility ?? ""),
+        limitations: String(r.limitations ?? ""),
+        aiGenerated: Number(r.ai_generated) === 1,
+        createdAt: Number(r.created_at),
+      };
+    });
+  }
+
+  deleteTopicCandidate(id: string): void {
+    this.db.prepare("DELETE FROM topic_candidates WHERE id = ?").run(id);
+  }
+
+  // ---- 假设卡片 ----
+
+  replaceHypotheses(projectId: string, cards: Array<{ number: string; statement: string; iv: string; dv: string; basis: string }>): void {
+    const tx = this.db;
+    tx.exec("BEGIN");
+    try {
+      tx.prepare("DELETE FROM hypothesis_cards WHERE project_id = ?").run(projectId);
+      const insert = tx.prepare("INSERT INTO hypothesis_cards (id, project_id, number, statement, iv, dv, basis, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const now = Date.now();
+      for (const c of cards) insert.run(randomUUID(), projectId, c.number, c.statement, c.iv, c.dv, c.basis, now, now);
+      tx.exec("COMMIT");
+    } catch (error) {
+      tx.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listHypotheses(projectId: string): Array<{ id: string; number: string; statement: string; iv: string; dv: string; basis: string }> {
+    const rows = this.db.prepare("SELECT * FROM hypothesis_cards WHERE project_id = ? ORDER BY number").all(projectId) as unknown as Row[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      number: String(r.number ?? ""),
+      statement: String(r.statement ?? ""),
+      iv: String(r.iv ?? ""),
+      dv: String(r.dv ?? ""),
+      basis: String(r.basis ?? ""),
+    }));
+  }
+
+  deleteHypothesis(id: string): void {
+    this.db.prepare("DELETE FROM hypothesis_cards WHERE id = ?").run(id);
   }
 
 }

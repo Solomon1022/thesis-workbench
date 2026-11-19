@@ -4,6 +4,7 @@ import { STAGES } from "../../shared/stages";
 import { fieldsFor, METHOD_TEMPLATES } from "../../shared/templates";
 import { STATUS_LABEL } from "./StageNav";
 import { LiteraturePanel } from "./LiteraturePanel";
+import { DesignAssist, ProposalPanel, TopicPanel } from "./Stage4Panels";
 
 export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
   detail: ProjectDetail;
@@ -192,6 +193,25 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent }: {
       )}
 
       {stageKey === "literature" && <LiteraturePanel detail={detail} />}
+
+      {stageKey === "topic" && <TopicPanel detail={detail} />}
+
+      {stageKey === "design" && (
+        <DesignAssist
+          detail={detail}
+          values={values}
+          onDraft={(drafts) => {
+            setValues((prev) => ({ ...prev, ...drafts }));
+            for (const [fieldKey, value] of Object.entries(drafts)) sendValue(fieldKey, value);
+          }}
+          onRestoreFields={(fields) => {
+            setValues((prev) => ({ ...prev, ...fields }));
+            for (const [fieldKey, value] of Object.entries(fields)) sendValue(fieldKey, value);
+          }}
+        />
+      )}
+
+      {stageKey === "proposal" && <ProposalPanel detail={detail} />}
     </div>
   );
 }

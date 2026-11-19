@@ -40,6 +40,18 @@ declare global {
       literatureSearchLog(projectId: string): Promise<SearchLogEntry[]>;
       literatureGenQueries(topic: string): Promise<{ ok: boolean; message: string; queries?: string[]; provider?: string; model?: string }>;
       openExternal(url: string): Promise<boolean>;
+      stage4GenerateDirections(projectId: string, inputs: unknown): Promise<{ ok: boolean; message: string; directions?: Array<{ question: string; basisLitIds: string[]; basis: LiteratureItem[]; missingBasis: boolean; dataPath: string; feasibility: string; limitations: string }>; provider?: string; model?: string }>;
+      stage4SaveDirection(projectId: string, d: unknown): Promise<void>;
+      stage4ListDirections(projectId: string): Promise<Array<{ id: string; question: string; basisLitIds: string[]; dataPath: string; feasibility: string; limitations: string; aiGenerated: boolean; createdAt: number }>>;
+      stage4DeleteDirection(id: string): Promise<void>;
+      stage4GenerateDesignDraft(projectId: string): Promise<{ ok: boolean; message: string; draft?: { fields: Record<string, string>; hypotheses: Array<{ number: string; statement: string; iv: string; dv: string; basis: string }>; note: string }; provider?: string; model?: string }>;
+      stage4GenerateProposal(projectId: string): Promise<{ ok: boolean; message: string; sections?: Array<{ title: string; content: string }>; provider?: string; model?: string }>;
+      stage4SaveVersion(projectId: string, stageKey: string, contentJson: string, note: string): Promise<number>;
+      stage4ListVersions(projectId: string, stageKey: string): Promise<Array<{ id: number; versionNo: number; contentJson: string; note: string; createdAt: number }>>;
+      stage4RestoreVersion(versionId: number): Promise<{ contentJson: string; versionNo: number; warning: string } | null>;
+      stage4ReplaceHypotheses(projectId: string, cards: unknown): Promise<void>;
+      stage4ListHypotheses(projectId: string): Promise<Array<{ id: string; number: string; statement: string; iv: string; dv: string; basis: string }>>;
+      stage4DeleteHypothesis(id: string): Promise<void>;
     };
   }
 }

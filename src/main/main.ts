@@ -5,6 +5,7 @@ import { ThesisDB } from "./db";
 import { registerIpc } from "./ipc";
 import { SettingsService } from "./settings-service";
 import { LiteratureService } from "./literature-service";
+import { Stage4Service } from "./stage4-service";
 
 let mainWindow: BrowserWindow | null = null;
 let db: ThesisDB | null = null;
@@ -71,7 +72,8 @@ if (gotLock) {
   app.whenReady().then(() => {
     db = new ThesisDB(path.join(app.getPath("userData"), "thesis-workbench.db"));
     const settingsService = new SettingsService(db);
-    registerIpc(db, settingsService, new LiteratureService(db, settingsService, app.getPath("userData")));
+    const literatureService = new LiteratureService(db, settingsService, app.getPath("userData"));
+    registerIpc(db, settingsService, literatureService, new Stage4Service(db, settingsService));
     createWindow();
   }).catch((error) => {
     console.error("[main] startup error:", error);

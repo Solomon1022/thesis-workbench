@@ -43,6 +43,18 @@ const api = {
   literatureGenQueries: (topic: string): Promise<{ ok: boolean; message: string; queries?: string[]; provider?: string; model?: string }> =>
     ipcRenderer.invoke("literature:genQueries", topic),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:openExternal", url),
+  stage4GenerateDirections: (projectId: string, inputs: unknown) => ipcRenderer.invoke("stage4:generateDirections", projectId, inputs),
+  stage4SaveDirection: (projectId: string, d: unknown) => ipcRenderer.invoke("stage4:saveDirection", projectId, d),
+  stage4ListDirections: (projectId: string) => ipcRenderer.invoke("stage4:listDirections", projectId),
+  stage4DeleteDirection: (id: string) => ipcRenderer.invoke("stage4:deleteDirection", id),
+  stage4GenerateDesignDraft: (projectId: string) => ipcRenderer.invoke("stage4:generateDesignDraft", projectId),
+  stage4GenerateProposal: (projectId: string) => ipcRenderer.invoke("stage4:generateProposal", projectId),
+  stage4SaveVersion: (projectId: string, stageKey: string, contentJson: string, note: string) => ipcRenderer.invoke("stage4:saveVersion", projectId, stageKey, contentJson, note),
+  stage4ListVersions: (projectId: string, stageKey: string) => ipcRenderer.invoke("stage4:listVersions", projectId, stageKey),
+  stage4RestoreVersion: (versionId: number) => ipcRenderer.invoke("stage4:restoreVersion", versionId),
+  stage4ReplaceHypotheses: (projectId: string, cards: unknown) => ipcRenderer.invoke("stage4:replaceHypotheses", projectId, cards),
+  stage4ListHypotheses: (projectId: string) => ipcRenderer.invoke("stage4:listHypotheses", projectId),
+  stage4DeleteHypothesis: (id: string) => ipcRenderer.invoke("stage4:deleteHypothesis", id),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);
