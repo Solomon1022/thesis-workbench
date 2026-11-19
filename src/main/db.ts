@@ -193,6 +193,33 @@ export class ThesisDB {
         updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_hc_project ON hypothesis_cards(project_id);
+
+      CREATE TABLE IF NOT EXISTS data_files (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        original_name TEXT NOT NULL DEFAULT '',
+        row_count INTEGER NOT NULL,
+        column_count INTEGER NOT NULL,
+        variables_json TEXT NOT NULL DEFAULT '[]',
+        stored_path TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS analysis_runs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        data_file_id TEXT NOT NULL,
+        method TEXT NOT NULL,
+        params_json TEXT NOT NULL DEFAULT '{}',
+        results_json TEXT NOT NULL DEFAULT '{}',
+        formula TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'ok',
+        message TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_df_project ON data_files(project_id);
+      CREATE INDEX IF NOT EXISTS idx_ar_project ON analysis_runs(project_id);
     `);
   }
 
@@ -577,6 +604,97 @@ export class ThesisDB {
 
   deleteHypothesis(id: string): void {
     this.db.prepare("DELETE FROM hypothesis_cards WHERE id = ?").run(id);
+  }
+
+  // ===== 阶段 5：数据文件与分析运行 =====
+
+  insertDataFile(input: { projectId: string; name: string; kind: string; originalName: string; rowCount: number; columnCount: number; variablesJson: string; storedPath: string }): string {
+    const id = randomUUID();
+    this.db.prepare("INSERT INTO data_files (id, project_id, name, kind, original_name, row_count, column_count, variables_json, stored_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, input.projectId, input.name, input.kind, input.originalName, input.rowCount, input.columnCount, input.variablesJson, input.storedPath, Date.now());
+    return id;
+  }
+
+  listDataFiles(projectId: string): Array<{ id: string; name: string; kind: string; originalName: string; rowCount: number; columnCount: number; variablesJson: string; storedPath: string; createdAt: number }> {
+    const rows = this.db.prepare("SELECT * FROM data_files WHERE project_id = ? ORDER BY created_at DESC").all(projectId) as unknown as Row[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: String(r.name ?? ""),
+      kind: String(r.kind ?? ""),
+      originalName: String(r.original_name ?? ""),
+      rowCount: Number(r.row_count),
+      columnCount: Number(r.column_count),
+      variablesJson: String(r.variables_json ?? "[]"),
+      storedPath: String(r.stored_path ?? ""),
+      createdAt: Number(r.created_at),
+    }));
+  }
+
+  updateDataFileStoredPath(id: string, storedPath: string): void {
+    this.db.prepare("UPDATE data_files SET stored_path = ? WHERE id = ?").run(storedPath, id);
+  }
+
+  getDataFile(id: string): { id: string; projectId: string; name: string; kind: string; originalName: string; rowCount: number; columnCount: number; variablesJson: string; storedPath: string } | null {
+    const r = this.db.prepare("SELECT * FROM data_files WHERE id = ?").get(id) as unknown as Row | undefined;
+    if (!r) return null;
+    return {
+      id: String(r.id),
+      projectId: String(r.project_id),
+      name: String(r.name ?? ""),
+      kind: String(r.kind ?? ""),
+      originalName: String(r.original_name ?? ""),
+      rowCount: Number(r.row_count),
+      columnCount: Number(r.column_count),
+      variablesJson: String(r.variables_json ?? "[]"),
+      storedPath: String(r.stored_path ?? ""),
+    };
+  }
+
+  deleteDataFile(id: string): void {
+    this.db.prepare("DELETE FROM analysis_runs WHERE data_file_id = ?").run(id);
+    this.db.prepare("DELETE FROM data_files WHERE id = ?").run(id);
+  }
+
+  insertAnalysisRun(input: { projectId: string; dataFileId: string; method: string; paramsJson: string; resultsJson: string; formula: string; status: "ok" | "error"; message: string }): string {
+    const id = randomUUID();
+    this.db.prepare("INSERT INTO analysis_runs (id, project_id, data_file_id, method, params_json, results_json, formula, status, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, input.projectId, input.dataFileId, input.method, input.paramsJson, input.resultsJson, input.formula, input.status, input.message, Date.now());
+    return id;
+  }
+
+  listAnalysisRuns(projectId: string): Array<{ id: string; dataFileId: string; method: string; paramsJson: string; resultsJson: string; formula: string; status: string; message: string; createdAt: number }> {
+    const rows = this.db.prepare("SELECT * FROM analysis_runs WHERE project_id = ? ORDER BY created_at DESC").all(projectId) as unknown as Row[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      dataFileId: String(r.data_file_id),
+      method: String(r.method ?? ""),
+      paramsJson: String(r.params_json ?? "{}"),
+      resultsJson: String(r.results_json ?? "{}"),
+      formula: String(r.formula ?? ""),
+      status: String(r.status ?? "ok"),
+      message: String(r.message ?? ""),
+      createdAt: Number(r.created_at),
+    }));
+  }
+
+  getAnalysisRun(id: string): { id: string; projectId: string; dataFileId: string; method: string; paramsJson: string; resultsJson: string; formula: string; status: string; message: string } | null {
+    const r = this.db.prepare("SELECT * FROM analysis_runs WHERE id = ?").get(id) as unknown as Row | undefined;
+    if (!r) return null;
+    return {
+      id: String(r.id),
+      projectId: String(r.project_id),
+      dataFileId: String(r.data_file_id),
+      method: String(r.method ?? ""),
+      paramsJson: String(r.params_json ?? "{}"),
+      resultsJson: String(r.results_json ?? "{}"),
+      formula: String(r.formula ?? ""),
+      status: String(r.status ?? "ok"),
+      message: String(r.message ?? ""),
+    };
+  }
+
+  deleteAnalysisRun(id: string): void {
+    this.db.prepare("DELETE FROM analysis_runs WHERE id = ?").run(id);
   }
 
 }

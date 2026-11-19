@@ -4,10 +4,11 @@ import type { SettingsService } from "./settings-service";
 import type { LiteratureService, LiteratureInput } from "./literature-service";
 import type { Stage4Service } from "./stage4-service";
 import type { WritingService } from "./writing-service";
+import type { DataService } from "./data-service";
 import type { ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
 import type { ProjectInput, StageStatus } from "../shared/types";
 
-export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService): void {
+export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService): void {
   ipcMain.handle("runtime", () => ({ platform: process.platform, dbPath: db.path }));
   ipcMain.handle("project:list", () => db.listProjects());
   ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject(input));
@@ -69,6 +70,16 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   // 写作管线（接地文献库的 RAG）
   ipcMain.handle("writing:generate", (_e, projectId: string, instruction: string, opts: { query?: string; topK?: number }) =>
     writing.generate(projectId, instruction, opts ?? {}));
+
+  // 阶段 5：数据导入与本地分析
+  ipcMain.handle("data:importText", (_e, projectId: string, name: string, text: string) => dataService.importText(projectId, name, text));
+  ipcMain.handle("data:importFile", (_e, projectId: string) => dataService.importFile(projectId));
+  ipcMain.handle("data:list", (_e, projectId: string) => dataService.listFiles(projectId));
+  ipcMain.handle("data:delete", (_e, id: string) => db.deleteDataFile(id));
+  ipcMain.handle("data:analyze", (_e, projectId: string, dataFileId: string, method: string, params: unknown) =>
+    dataService.analyze(projectId, dataFileId, method, params));
+  ipcMain.handle("data:runs", (_e, projectId: string) => dataService.listRuns(projectId));
+  ipcMain.handle("data:explain", (_e, runId: string) => dataService.explain(runId));
 
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

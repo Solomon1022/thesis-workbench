@@ -57,6 +57,13 @@ const api = {
   stage4DeleteHypothesis: (id: string) => ipcRenderer.invoke("stage4:deleteHypothesis", id),
   writingGenerate: (projectId: string, instruction: string, opts?: { query?: string; topK?: number }) =>
     ipcRenderer.invoke("writing:generate", projectId, instruction, opts),
+  dataImportText: (projectId: string, name: string, text: string) => ipcRenderer.invoke("data:importText", projectId, name, text),
+  dataImportFile: (projectId: string) => ipcRenderer.invoke("data:importFile", projectId),
+  dataList: (projectId: string) => ipcRenderer.invoke("data:list", projectId),
+  dataDelete: (id: string) => ipcRenderer.invoke("data:delete", id),
+  dataAnalyze: (projectId: string, dataFileId: string, method: string, params: unknown) => ipcRenderer.invoke("data:analyze", projectId, dataFileId, method, params),
+  dataRuns: (projectId: string) => ipcRenderer.invoke("data:runs", projectId),
+  dataExplain: (runId: string) => ipcRenderer.invoke("data:explain", runId),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);

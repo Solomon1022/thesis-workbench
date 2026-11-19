@@ -63,6 +63,13 @@ declare global {
         provider?: string;
         model?: string;
       }>;
+      dataImportText(projectId: string, name: string, text: string): Promise<{ id: string; variables: Array<{ name: string; type: string; n: number; missing: number; invalid: number; distinct: number }>; rowCount: number; columnCount: number }>;
+      dataImportFile(projectId: string): Promise<{ canceled: true } | { id: string; variables: Array<{ name: string; type: string; n: number; missing: number; invalid: number; distinct: number }>; rowCount: number; columnCount: number; kind: string }>;
+      dataList(projectId: string): Promise<Array<{ id: string; name: string; kind: string; originalName: string; rowCount: number; columnCount: number; variables: Array<{ name: string; type: string; n: number; missing: number; invalid: number; distinct: number }>; createdAt: number }>>;
+      dataDelete(id: string): Promise<void>;
+      dataAnalyze(projectId: string, dataFileId: string, method: string, params: unknown): Promise<{ runId: string; method: string; status: string; message: string; formula: string; params: unknown; results: unknown }>;
+      dataRuns(projectId: string): Promise<Array<{ id: string; dataFileId: string; method: string; params: unknown; results: unknown; formula: string; status: string; message: string; createdAt: number }>>;
+      dataExplain(runId: string): Promise<{ ok: boolean; message: string; explanation?: string; provider?: string; model?: string }>;
     };
   }
 }
