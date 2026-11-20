@@ -23,11 +23,12 @@ test("备份与快照：不含密钥、恢复为副本、原项目不变", async
 
     // 配置一个带密钥的提供商（验证备份不含密钥）
     await page.getByRole("button", { name: "服务与模型设置" }).click();
-    await page.getByRole("button", { name: "自定义 / OpenAI 兼容中转" }).click();
+    await page.getByLabel("服务商模板（可选，快速填充）").selectOption("custom");
+    await page.getByLabel("线路名称 *").fill("备份线路");
     await page.getByLabel("Base URL *").fill("http://127.0.0.1:1/v1");
     await page.getByLabel("模型名 *").fill("m");
     await page.getByLabel("API Key").fill("sk-super-secret");
-    await page.getByRole("button", { name: "保存配置" }).click();
+    await page.getByRole("button", { name: "添加线路" }).click();
     await expect(page.getByText(/密钥已加密保存到本机/)).toBeVisible();
     await page.getByRole("button", { name: "返回项目" }).click();
 

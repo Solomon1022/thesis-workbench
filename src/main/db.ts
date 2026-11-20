@@ -3,7 +3,6 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ExistingMaterials, Project, ProjectDetail, ProjectInput, StageRecord, StageStatus } from "../shared/types";
-import type { ModelProfile, NetworkConfig, RoleAssignment } from "../shared/settings";
 import type { EvidenceCard, LiteratureItem, SearchLogEntry } from "../shared/literature";
 import { STAGES } from "../shared/stages";
 import { suggestStartStage } from "../shared/templates";
@@ -254,7 +253,147 @@ export class ThesisDB {
         created_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_aic_project ON ai_conversations(project_id, stage_key);
+
+      CREATE TABLE IF NOT EXISTS model_channels (
+        id TEXT PRIMARY KEY,
+        provider_key TEXT NOT NULL DEFAULT 'custom',
+        name TEXT NOT NULL DEFAULT '',
+        base_url TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        api_style TEXT NOT NULL DEFAULT 'openai-chat',
+        thinking_level TEXT NOT NULL DEFAULT 'none',
+        user_agent TEXT NOT NULL DEFAULT '',
+        network_mode TEXT NOT NULL DEFAULT 'direct',
+        proxy_url TEXT NOT NULL DEFAULT '',
+        header_overrides TEXT NOT NULL DEFAULT '{}',
+        body_overrides TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS channel_secrets (
+        channel_id TEXT PRIMARY KEY,
+        ciphertext TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS role_channels (
+        role_key TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL DEFAULT ''
+      );
     `);
+    this.migrateChannels();
+  }
+
+
+  /** 旧单线路 model_profiles/role_assignments 数据迁移到多线路结构（只做一次）。 */
+  private migrateChannels(): void {
+    const hasChannels = Number((this.db.prepare("SELECT COUNT(*) AS c FROM model_channels").get() as unknown as Row).c) > 0;
+    if (hasChannels) return;
+    const rows = this.db.prepare("SELECT * FROM model_profiles").all() as unknown as Row[];
+    for (const r of rows) {
+      const id = randomUUID();
+      const style = String(r.api_style ?? "openai") === "anthropic" ? "anthropic" : "openai-chat";
+      this.db.prepare(
+        `INSERT INTO model_channels (id, provider_key, name, base_url, model, api_style, thinking_level, user_agent, network_mode, proxy_url, header_overrides, body_overrides, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'none', '', ?, ?, '{}', '{}', ?, ?)`
+      ).run(id, String(r.provider_key), String(r.name), String(r.base_url ?? ""), String(r.model ?? ""), style, String(r.network_mode ?? "direct"), String(r.proxy_url ?? ""), Number(r.updated_at), Date.now());
+      // 旧密钥（按 provider_key）迁移到该线路
+      const secret = this.db.prepare("SELECT ciphertext FROM model_secrets WHERE provider_key = ?").get(String(r.provider_key)) as unknown as Row | undefined;
+      if (secret && String(secret.ciphertext ?? "")) {
+        this.db.prepare("INSERT INTO channel_secrets (channel_id, ciphertext, updated_at) VALUES (?, ?, ?)")
+          .run(id, String(secret.ciphertext), Date.now());
+      }
+    }
+    // 旧角色分配迁移（按 provider_key 匹配第一个线路）
+    const roles = this.db.prepare("SELECT * FROM role_assignments").all() as unknown as Row[];
+    for (const r of roles) {
+      if (!String(r.provider_key ?? "")) continue;
+      const channel = this.db.prepare("SELECT id FROM model_channels WHERE provider_key = ? LIMIT 1").get(String(r.provider_key)) as unknown as Row | undefined;
+      if (channel) {
+        this.db.prepare("INSERT OR IGNORE INTO role_channels (role_key, channel_id) VALUES (?, ?)").run(String(r.role_key), String(channel.id));
+      }
+    }
+  }
+
+  // ===== 多线路模型管理 =====
+
+  listChannels(): Array<{
+    id: string; providerKey: string; name: string; baseUrl: string; model: string; apiStyle: string; thinkingLevel: string;
+    userAgent: string; networkMode: string; proxyUrl: string; headerOverrides: string; bodyOverrides: string; createdAt: number; updatedAt: number;
+  }> {
+    const rows = this.db.prepare("SELECT * FROM model_channels ORDER BY created_at").all() as unknown as Row[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      providerKey: String(r.provider_key ?? "custom"),
+      name: String(r.name ?? ""),
+      baseUrl: String(r.base_url ?? ""),
+      model: String(r.model ?? ""),
+      apiStyle: String(r.api_style ?? "openai-chat"),
+      thinkingLevel: String(r.thinking_level ?? "none"),
+      userAgent: String(r.user_agent ?? ""),
+      networkMode: String(r.network_mode ?? "direct"),
+      proxyUrl: String(r.proxy_url ?? ""),
+      headerOverrides: String(r.header_overrides ?? "{}"),
+      bodyOverrides: String(r.body_overrides ?? "{}"),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at),
+    }));
+  }
+
+  upsertChannel(input: {
+    id?: string; providerKey: string; name: string; baseUrl: string; model: string; apiStyle: string; thinkingLevel: string;
+    userAgent: string; networkMode: string; proxyUrl: string; headerOverrides: string; bodyOverrides: string;
+  }): string {
+    const id = input.id && input.id.length > 0 ? input.id : randomUUID();
+    this.db.prepare(
+      `INSERT INTO model_channels (id, provider_key, name, base_url, model, api_style, thinking_level, user_agent, network_mode, proxy_url, header_overrides, body_overrides, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET provider_key = excluded.provider_key, name = excluded.name, base_url = excluded.base_url, model = excluded.model,
+         api_style = excluded.api_style, thinking_level = excluded.thinking_level, user_agent = excluded.user_agent,
+         network_mode = excluded.network_mode, proxy_url = excluded.proxy_url, header_overrides = excluded.header_overrides,
+         body_overrides = excluded.body_overrides, updated_at = excluded.updated_at`
+    ).run(id, input.providerKey, input.name, input.baseUrl, input.model, input.apiStyle, input.thinkingLevel, input.userAgent, input.networkMode, input.proxyUrl, input.headerOverrides, input.bodyOverrides, Date.now(), Date.now());
+    return id;
+  }
+
+  deleteChannel(id: string): void {
+    this.db.prepare("DELETE FROM channel_secrets WHERE channel_id = ?").run(id);
+    this.db.prepare("DELETE FROM role_channels WHERE channel_id = ?").run(id);
+    this.db.prepare("DELETE FROM model_channels WHERE id = ?").run(id);
+  }
+
+  getChannelSecret(id: string): string {
+    const row = this.db.prepare("SELECT ciphertext FROM channel_secrets WHERE channel_id = ?").get(id) as unknown as Row | undefined;
+    return row ? String(row.ciphertext ?? "") : "";
+  }
+
+  setChannelSecret(id: string, ciphertext: string): void {
+    this.db.prepare(
+      `INSERT INTO channel_secrets (channel_id, ciphertext, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(channel_id) DO UPDATE SET ciphertext = excluded.ciphertext, updated_at = excluded.updated_at`
+    ).run(id, ciphertext, Date.now());
+  }
+
+  deleteChannelSecret(id: string): void {
+    this.db.prepare("DELETE FROM channel_secrets WHERE channel_id = ?").run(id);
+  }
+
+  secretStatusByChannel(): Record<string, boolean> {
+    const rows = this.db.prepare("SELECT channel_id, ciphertext FROM channel_secrets").all() as unknown as Row[];
+    const out: Record<string, boolean> = {};
+    for (const r of rows) out[String(r.channel_id)] = String(r.ciphertext ?? "").length > 0;
+    return out;
+  }
+
+  listRoleChannels(): Array<{ roleKey: string; channelId: string }> {
+    const rows = this.db.prepare("SELECT * FROM role_channels").all() as unknown as Row[];
+    return rows.map((r) => ({ roleKey: String(r.role_key), channelId: String(r.channel_id ?? "") }));
+  }
+
+  setRoleChannel(roleKey: string, channelId: string): void {
+    this.db.prepare(
+      `INSERT INTO role_channels (role_key, channel_id) VALUES (?, ?)
+       ON CONFLICT(role_key) DO UPDATE SET channel_id = excluded.channel_id`
+    ).run(roleKey, channelId);
   }
 
   close(): void { this.db.close(); }
@@ -380,70 +519,6 @@ export class ThesisDB {
       materials, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
     };
   }
-  // ===== 模型与角色设置 =====
-
-  listModelProfiles(): Array<ModelProfile & NetworkConfig> {
-    const rows = this.db.prepare("SELECT * FROM model_profiles").all() as unknown as Row[];
-    return rows.map((r) => ({
-      providerKey: String(r.provider_key),
-      name: String(r.name),
-      baseUrl: String(r.base_url ?? ""),
-      model: String(r.model ?? ""),
-      apiStyle: String(r.api_style) as "openai" | "anthropic",
-      mode: String(r.network_mode) as NetworkConfig["mode"],
-      proxyUrl: String(r.proxy_url ?? ""),
-    }));
-  }
-
-  upsertModelProfile(profile: ModelProfile, network: NetworkConfig): void {
-    this.db.prepare(
-      `INSERT INTO model_profiles (provider_key, name, base_url, model, api_style, network_mode, proxy_url, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(provider_key) DO UPDATE SET name = excluded.name, base_url = excluded.base_url, model = excluded.model,
-         api_style = excluded.api_style, network_mode = excluded.network_mode, proxy_url = excluded.proxy_url, updated_at = excluded.updated_at`
-    ).run(profile.providerKey, profile.name, profile.baseUrl, profile.model, profile.apiStyle, network.mode, network.proxyUrl, Date.now());
-  }
-
-  /** 返回密文（base64）。加解密在服务层用 safeStorage 完成，数据层不接触明文。 */
-  getModelSecret(providerKey: string): string {
-    const row = this.db.prepare("SELECT ciphertext FROM model_secrets WHERE provider_key = ?").get(providerKey) as unknown as Row | undefined;
-    return row ? String(row.ciphertext ?? "") : "";
-  }
-
-  setModelSecret(providerKey: string, ciphertext: string): void {
-    this.db.prepare(
-      `INSERT INTO model_secrets (provider_key, ciphertext, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(provider_key) DO UPDATE SET ciphertext = excluded.ciphertext, updated_at = excluded.updated_at`
-    ).run(providerKey, ciphertext, Date.now());
-  }
-
-  deleteModelSecret(providerKey: string): void {
-    this.db.prepare("DELETE FROM model_secrets WHERE provider_key = ?").run(providerKey);
-  }
-
-  secretStatus(): Record<string, boolean> {
-    const rows = this.db.prepare("SELECT provider_key, ciphertext FROM model_secrets").all() as unknown as Row[];
-    const out: Record<string, boolean> = {};
-    for (const r of rows) out[String(r.provider_key)] = String(r.ciphertext ?? "").length > 0;
-    return out;
-  }
-
-  listRoleAssignments(): RoleAssignment[] {
-    const rows = this.db.prepare("SELECT * FROM role_assignments").all() as unknown as Row[];
-    return rows.map((r) => ({
-      roleKey: String(r.role_key) as RoleAssignment["roleKey"],
-      providerKey: String(r.provider_key ?? ""),
-      model: String(r.model ?? ""),
-    }));
-  }
-
-  setRoleAssignment(roleKey: string, providerKey: string, model: string): void {
-    this.db.prepare(
-      `INSERT INTO role_assignments (role_key, provider_key, model, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(role_key) DO UPDATE SET provider_key = excluded.provider_key, model = excluded.model, updated_at = excluded.updated_at`
-    ).run(roleKey, providerKey, model, Date.now());
-  }
-
   // ===== 文献库 =====
 
   listLiterature(projectId: string): LiteratureItem[] {

@@ -276,9 +276,9 @@ export class DataService {
     ].join("\n");
     const user = "方法：" + (METHOD_LABEL[run.method] ?? run.method) + "\n参数：" + run.paramsJson + "\n公式：" + run.formula + "\n数据文件：" + (file?.name ?? "未知") + "\n真实结果（JSON）：\n" + run.resultsJson + "\n\n请解释这些结果的含义、适用条件与局限。";
     const content = await chat({
-      profile: role.profile,
+      channel: role.channel,
       apiKey: role.apiKey,
-      network: { mode: role.profile.mode, proxyUrl: role.profile.proxyUrl },
+
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -286,7 +286,7 @@ export class DataService {
       maxTokens: 8000,
       signal: AbortSignal.timeout(240_000),
     });
-    return { ok: true, message: "AI 解释基于真实计算结果生成", explanation: content, provider: role.profile.name, model: role.model };
+    return { ok: true, message: "AI 解释基于真实计算结果生成", explanation: content, provider: role.channel.name, model: role.channel.model };
   }
 
   listFiles(projectId: string) {

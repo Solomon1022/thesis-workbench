@@ -64,15 +64,15 @@ test("阶段 5：数据导入 → 本地分析 → AI 解释 → 重启持久化
 
     // 配置模型 + 分析解释角色
     await page.getByRole("button", { name: "服务与模型设置" }).click();
-    await page.getByRole("button", { name: "自定义 / OpenAI 兼容中转" }).click();
+    await page.getByLabel("服务商模板（可选，快速填充）").selectOption("custom");
+    await page.getByLabel("线路名称 *").fill("测试线路");
     await page.getByLabel("Base URL *").fill(model.base);
     await page.getByLabel("模型名 *").fill("test-model");
     await page.getByLabel("API Key").fill("sk-mock");
-    await page.getByRole("button", { name: "保存配置" }).click();
+    await page.getByRole("button", { name: "添加线路" }).click();
     await expect(page.getByText(/已保存/).first()).toBeVisible();
     await page.getByRole("button", { name: "任务角色" }).click();
-    await page.getByLabel("分析解释服务商").selectOption("custom");
-    await page.getByRole("button", { name: "保存分析解释" }).click();
+    await page.getByLabel("分析解释服务商").selectOption({ index: 1 });
     await expect(page.getByText("角色配置已保存")).toBeVisible();
     await page.getByRole("button", { name: "返回项目" }).click();
 

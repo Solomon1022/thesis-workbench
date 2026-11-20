@@ -5,26 +5,33 @@ export interface NetworkConfig {
   proxyUrl: string;
 }
 
-export interface ModelProfile {
+export type ApiStyle = "openai-chat" | "anthropic" | "openai-responses" | "gemini";
+
+export type ThinkingLevel = "none" | "low" | "medium" | "high" | "max";
+
+/** 一条可独立配置的模型线路（像中转站的渠道）：完整自定义字段。 */
+export interface ModelChannel {
+  id: string;
   providerKey: string;
   name: string;
   baseUrl: string;
   model: string;
-  apiStyle: "openai" | "anthropic";
+  apiStyle: ApiStyle;
+  thinkingLevel: ThinkingLevel;
+  userAgent: string;
+  network: NetworkConfig;
+  headerOverrides: Record<string, string>;
+  bodyOverrides: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
 }
 
-export type RoleKey = "search_assist" | "research_design" | "writing" | "analysis" | "review";
+export type TaskRoleKey = "search_assist" | "research_design" | "writing" | "analysis" | "review";
 
 export interface TaskRole {
-  key: RoleKey;
+  key: TaskRoleKey;
   label: string;
   description: string;
-}
-
-export interface RoleAssignment {
-  roleKey: RoleKey;
-  providerKey: string;
-  model: string;
 }
 
 export interface ConnectionLayerResult {
@@ -33,17 +40,32 @@ export interface ConnectionLayerResult {
   message: string;
 }
 
-/** 预设只减少配置工作量；模型名与可用区域以各服务商后台为准，均可修改。 */
-export const MODEL_PRESETS: ModelProfile[] = [
-  { providerKey: "openai", name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "", apiStyle: "openai" },
-  { providerKey: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "", apiStyle: "openai" },
-  { providerKey: "qwen", name: "通义千问", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "", apiStyle: "openai" },
-  { providerKey: "doubao", name: "豆包 / 火山方舟", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", model: "", apiStyle: "openai" },
-  { providerKey: "moonshot", name: "Kimi / Moonshot", baseUrl: "https://api.moonshot.cn/v1", model: "", apiStyle: "openai" },
-  { providerKey: "zhipu", name: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "", apiStyle: "openai" },
-  { providerKey: "gemini", name: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", model: "", apiStyle: "openai" },
+export const API_STYLE_LABEL: Record<ApiStyle, string> = {
+  "openai-chat": "OpenAI Chat Completions",
+  anthropic: "Anthropic Messages（原生）",
+  "openai-responses": "OpenAI Responses API",
+  gemini: "Gemini Native generateContent",
+};
+
+export const THINKING_LEVEL_LABEL: Record<ThinkingLevel, string> = {
+  none: "关闭思考",
+  low: "低",
+  medium: "中",
+  high: "高",
+  max: "最大",
+};
+
+/** 预设只做模板；用户可按线路自由增删改。 */
+export const MODEL_PRESETS: Array<{ providerKey: string; name: string; baseUrl: string; model: string; apiStyle: ApiStyle }> = [
+  { providerKey: "openai", name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "", apiStyle: "openai-chat" },
+  { providerKey: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "", apiStyle: "openai-chat" },
+  { providerKey: "qwen", name: "通义千问", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "", apiStyle: "openai-chat" },
+  { providerKey: "doubao", name: "豆包 / 火山方舟", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", model: "", apiStyle: "openai-chat" },
+  { providerKey: "moonshot", name: "Kimi / Moonshot", baseUrl: "https://api.moonshot.cn/v1", model: "", apiStyle: "openai-chat" },
+  { providerKey: "zhipu", name: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "", apiStyle: "openai-chat" },
+  { providerKey: "gemini", name: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "", apiStyle: "gemini" },
   { providerKey: "anthropic", name: "Anthropic Claude", baseUrl: "https://api.anthropic.com/v1", model: "", apiStyle: "anthropic" },
-  { providerKey: "custom", name: "自定义 / OpenAI 兼容中转", baseUrl: "", model: "", apiStyle: "openai" },
+  { providerKey: "custom", name: "自定义 / OpenAI 兼容中转", baseUrl: "", model: "", apiStyle: "openai-chat" },
 ];
 
 export const DEFAULT_NETWORK: NetworkConfig = { mode: "direct", proxyUrl: "" };

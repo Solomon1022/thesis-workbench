@@ -44,7 +44,7 @@ test("第 0 项可编辑 + 项目知识汇总 + 设置三块布局", async () =>
     await expect(page.getByRole("button", { name: "任务角色" })).toBeVisible();
     await expect(page.getByRole("button", { name: "搜索服务" })).toBeVisible();
     await page.getByRole("button", { name: "任务角色" }).click();
-    await expect(page.getByText("五个任务角色可分别指定服务商与模型")).toBeVisible();
+    await expect(page.getByText(/五个任务角色可分别指定线路/)).toBeVisible();
     await page.getByRole("button", { name: "返回项目" }).click();
     await expect(page.getByText("论文研究，从这里开始")).not.toBeVisible();
   } finally {

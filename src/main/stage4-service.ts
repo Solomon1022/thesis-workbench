@@ -127,9 +127,9 @@ export class Stage4Service {
 
   private async ask(role: NonNullable<ReturnType<Stage4Service["requireRole"]>>, system: string, user: string): Promise<string> {
     return chat({
-      profile: role.profile,
+      channel: role.channel,
       apiKey: role.apiKey,
-      network: { mode: role.profile.mode, proxyUrl: role.profile.proxyUrl },
+
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -173,7 +173,7 @@ export class Stage4Service {
     if (directions.length === 0) {
       return { ok: false, message: "模型未返回有效候选方向（未保存任何内容）" };
     }
-    return { ok: true, message: "AI 生成的候选方向（依据已按文献库校验，未核验内容已标注）", directions, provider: role.profile.name, model: role.model };
+    return { ok: true, message: "AI 生成的候选方向（依据已按文献库校验，未核验内容已标注）", directions, provider: role.channel.name, model: role.channel.model };
   }
 
   saveDirection(projectId: string, d: GeneratedDirection): void {
@@ -250,8 +250,8 @@ export class Stage4Service {
       ok: true,
       message: "AI 草稿已生成（字段按模板字典过滤；请人工复核后使用，版本保存前内容不会覆盖旧版本）",
       draft: { fields: draftFields, hypotheses, note: "AI 生成 " + new Date().toLocaleString("zh-CN") },
-      provider: role.profile.name,
-      model: role.model,
+      provider: role.channel.name,
+      model: role.channel.model,
     };
   }
 
@@ -283,7 +283,7 @@ export class Stage4Service {
     if (sections.length === 0) {
       return { ok: false, message: "模型未返回有效章节框架（未写入任何内容）" };
     }
-    return { ok: true, message: "开题框架已生成（AI 草稿，请人工复核与编辑）", sections, provider: role.profile.name, model: role.model };
+    return { ok: true, message: "开题框架已生成（AI 草稿，请人工复核与编辑）", sections, provider: role.channel.name, model: role.channel.model };
   }
 
   // ---- 版本 ----

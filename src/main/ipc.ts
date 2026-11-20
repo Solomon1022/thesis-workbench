@@ -8,7 +8,7 @@ import type { DataService } from "./data-service";
 import type { ExportService } from "./export-service";
 import type { DocumentService } from "./document-service";
 import type { AiAssistService } from "./ai-assist-service";
-import type { ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
+import type { TaskRoleKey } from "../shared/settings";
 import type { ProjectInput, StageStatus } from "../shared/types";
 
 export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService, exportService: ExportService, documentService: DocumentService, aiAssist: AiAssistService): void {
@@ -24,28 +24,29 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("stage:setContent", (_e, projectId: string, stageKey: string, fieldKey: string, value: string) =>
     db.setStageContent(projectId, stageKey, fieldKey, value));
 
-  // 服务与模型设置
+  // 服务与模型设置（多线路）
   ipcMain.handle("settings:get", () => settings.getSettings());
-  ipcMain.handle("settings:saveProfile", (_e, profile: ModelProfile, network: NetworkConfig) => {
-    settings.saveProfile(profile, network);
-    return settings.getSettings();
+  ipcMain.handle("settings:saveChannel", (_e, input: Parameters<SettingsService["saveChannel"]>[0]) => {
+    const channelId = settings.saveChannel(input);
+    return { settings: settings.getSettings(), channelId };
   });
-  ipcMain.handle("settings:saveSecret", (_e, providerKey: string, apiKey: string) => settings.saveSecret(providerKey, apiKey));
+  ipcMain.handle("settings:deleteChannel", (_e, id: string) => settings.deleteChannel(id));
+  ipcMain.handle("settings:saveSecret", (_e, channelId: string, apiKey: string) => settings.saveSecret(channelId, apiKey));
+  ipcMain.handle("settings:deleteSecret", (_e, channelId: string) => settings.deleteSecret(channelId));
   ipcMain.handle("settings:saveContactEmail", (_e, email: string) => {
     settings.saveContactEmail(email);
     return settings.getSettings();
   });
-  ipcMain.handle("settings:deleteSecret", (_e, providerKey: string) => settings.deleteSecret(providerKey));
-  ipcMain.handle("settings:saveRole", (_e, roleKey: RoleKey, providerKey: string, model: string) => {
-    settings.saveRole(roleKey, providerKey, model);
+  ipcMain.handle("settings:saveRole", (_e, roleKey: TaskRoleKey, channelId: string) => {
+    settings.saveRole(roleKey, channelId);
     return settings.getSettings();
   });
-  ipcMain.handle("settings:testConnection", (_e, testId: string, providerKey: string) => settings.testConnection(testId, providerKey));
+  ipcMain.handle("settings:testConnection", (_e, testId: string, channelId: string) => settings.testConnection(testId, channelId));
   ipcMain.handle("settings:cancelTest", (_e, testId: string) => settings.cancelTest(testId));
-
   // 文献库（真实学术数据源）
   ipcMain.handle("literature:list", (_e, projectId: string) => db.listLiterature(projectId));
   ipcMain.handle("literature:search", (_e, projectId: string, source: string, query: string) => literature.search(projectId, source, query));
+  ipcMain.handle("literature:autoSearch", (_e, projectId: string) => literature.autoSearch(projectId));
   ipcMain.handle("literature:lookupDoi", (_e, doi: string) => literature.lookupDoi(doi));
   ipcMain.handle("literature:save", (_e, projectId: string, input: LiteratureInput, opts: { note?: string; manuallyVerified?: boolean }) => literature.saveItem(projectId, input, opts ?? {}));
   ipcMain.handle("literature:verifyManual", (_e, id: string, note: string) => literature.verifyManual(id, note));

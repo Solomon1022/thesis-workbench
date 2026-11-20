@@ -98,6 +98,15 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.getByRole("button", { name: "开始此阶段" }).click();
     await expect(page.getByText("检索与核验（真实学术数据源）")).toBeVisible();
 
+    // 0) 一键自动找文献（基于选题内容，输出真实地址，不保存）
+    await page.getByRole("button", { name: /前期检索与选题/ }).click();
+    await page.getByLabel("研究方向与关键词").fill("deep learning attention");
+    await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
+    await page.getByRole("button", { name: "自动找文献（含地址）" }).click();
+    await expect(page.getByText(/自动检索完成/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" })).toContainText("https://example.org/attention");
+    await expect(page.getByText("Crossref（一键自动检索）")).toBeVisible();
+
     // 1) Crossref 检索 → 候选 → 保存
     await page.getByLabel("检索式").fill("attention transformer");
     await page.getByRole("button", { name: "检索", exact: true }).click();

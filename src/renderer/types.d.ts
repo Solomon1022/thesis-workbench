@@ -1,4 +1,4 @@
-import type { ConnectionLayerResult, ModelProfile, NetworkConfig, RoleKey } from "../shared/settings";
+import type { ConnectionLayerResult, TaskRoleKey } from "../shared/settings";
 import type { EvidenceCard, LiteratureItem, SearchLogEntry, SearchOutcome } from "../shared/literature";
 import type { Project, ProjectDetail, ProjectInput, StageStatus } from "../shared/types";
 
@@ -14,22 +14,27 @@ declare global {
       setStageStatus(projectId: string, stageKey: string, status: StageStatus, skipReason: string): Promise<void>;
       setStageContent(projectId: string, stageKey: string, fieldKey: string, value: string): Promise<void>;
       settingsGet(): Promise<{
-        profiles: Array<ModelProfile & NetworkConfig>;
-        configuredKeys: string[];
-        secretStatus: Record<string, boolean>;
-        roles: Array<{ roleKey: RoleKey; providerKey: string; model: string }>;
+        channels: Array<{
+          id: string; providerKey: string; name: string; baseUrl: string; model: string; apiStyle: "openai-chat" | "anthropic" | "openai-responses" | "gemini";
+          thinkingLevel: "none" | "low" | "medium" | "high" | "max"; userAgent: string;
+          network: { mode: string; proxyUrl: string }; headerOverrides: Record<string, string>; bodyOverrides: Record<string, unknown>;
+          createdAt: number; updatedAt: number; hasKey: boolean;
+        }>;
+        roles: Array<{ roleKey: TaskRoleKey; channelId: string }>;
         encryptionAvailable: boolean;
         contactEmail: string;
       }>;
-      settingsSaveProfile(profile: ModelProfile, network: NetworkConfig): Promise<unknown>;
-      settingsSaveSecret(providerKey: string, apiKey: string): Promise<boolean>;
+      settingsSaveChannel(input: unknown): Promise<{ settings: unknown; channelId: string }>;
+      settingsDeleteChannel(id: string): Promise<void>;
+      settingsSaveSecret(channelId: string, apiKey: string): Promise<boolean>;
+      settingsDeleteSecret(channelId: string): Promise<void>;
       settingsSaveContactEmail(email: string): Promise<unknown>;
-      settingsDeleteSecret(providerKey: string): Promise<void>;
-      settingsSaveRole(roleKey: RoleKey, providerKey: string, model: string): Promise<unknown>;
-      settingsTestConnection(testId: string, providerKey: string): Promise<ConnectionLayerResult[]>;
+      settingsSaveRole(roleKey: TaskRoleKey, channelId: string): Promise<unknown>;
+      settingsTestConnection(testId: string, channelId: string): Promise<ConnectionLayerResult[]>;
       settingsCancelTest(testId: string): Promise<void>;
       literatureList(projectId: string): Promise<LiteratureItem[]>;
       literatureSearch(projectId: string, source: string, query: string): Promise<{ outcome: SearchOutcome; log: SearchLogEntry }>;
+      literatureAutoSearch(projectId: string): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: Array<{ title: string; authors: string; year: string; venue: string; doi: string; url: string; abstract: string; source: "crossref" | "arxiv" | "pubmed" | "manual"; type: string; preprint: boolean }> }>;
       literatureLookupDoi(doi: string): Promise<{ found: boolean; message: string; item?: SearchOutcome["items"][number] }>;
       literatureSave(projectId: string, input: unknown, opts: { note?: string; manuallyVerified?: boolean }): Promise<{ saved: boolean; message: string; item?: LiteratureItem; existing?: LiteratureItem }>;
       literatureVerifyManual(id: string, note: string): Promise<void>;

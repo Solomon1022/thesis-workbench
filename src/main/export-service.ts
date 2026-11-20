@@ -52,7 +52,7 @@ export class ExportService {
     return path.join(this.userDataDir, "attachments", "data", projectId);
   }
 
-  /** 汇总项目全部数据为 bundle（不含 model_secrets 等应用级设置与任何绝对路径）。 */
+  /** 汇总项目全部数据为 bundle（不含 model_secrets" || table === "channel_secrets" || table === "model_channels" || table === "role_channels 等应用级设置与任何绝对路径）。 */
   buildBundle(projectId: string): ProjectBundle {
     const detail = this.db.getProjectDetail(projectId);
     const p = detail.project;

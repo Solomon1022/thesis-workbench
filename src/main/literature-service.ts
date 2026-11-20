@@ -62,6 +62,57 @@ export class LiteratureService {
     }
   }
 
+  /** 一键自动找文献：从选题、变量与研究设计中推导检索式，直接跑真实 Crossref 并给出文献地址。 */
+  async autoSearch(projectId: string): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: SearchOutcome["items"] }> {
+    const detail = this.db.getProjectDetail(projectId);
+    const topic = detail.content["topic"] ?? {};
+    const design = detail.content["design"] ?? {};
+    const queries: string[] = [];
+    const direction = String(topic["direction"] ?? "").trim();
+    if (direction) queries.push(direction.split(/[，,；;\n。]/)[0].trim());
+    const variablesJson = String(topic["variables"] ?? "").trim();
+    if (variablesJson) {
+      try {
+        const v = JSON.parse(variablesJson) as Record<string, string[]>;
+        const parts = [...(v.iv ?? []), ...(v.dv ?? []), ...(v.mediator ?? [])].map((s) => String(s).trim()).filter(Boolean);
+        if (parts.length > 0) queries.push(parts.join(" "));
+      } catch { /* 忽略非 JSON */ }
+    }
+    const abstract = String(design["abstract"] ?? "").trim();
+    if (abstract) queries.push(abstract.slice(0, 120));
+    const candidatesField = String(topic["candidates"] ?? "").trim();
+    if (candidatesField) queries.push(candidatesField.split(/[。\n]/)[0].trim().slice(0, 120));
+    const used = queries.map((q) => q.trim()).filter((q) => q.length > 2).slice(0, 3);
+    if (used.length === 0) {
+      return { ok: false, message: "还没有可用的选题信息：请先在「前期检索与选题」填写研究方向或变量，或在「研究问题与设计」填写摘要", queryUsed: [], results: [] };
+    }
+    const seen = new Set<string>();
+    const results: SearchOutcome["items"] = [];
+    let lastError = "";
+    for (const q of used) {
+      try {
+        const outcome = await crossrefSearch(q, this.settings.getContactEmail(), this.signalWithTimeout());
+        if (outcome.status === "error") { lastError = outcome.message; continue; }
+        for (const item of outcome.items) {
+          const key = item.doi || item.title;
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            results.push(item);
+          }
+          if (results.length >= 15) break;
+        }
+        this.db.appendSearchLog(projectId, "crossref", q, results.length, "ok", "自动检索");
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+      if (results.length >= 15) break;
+    }
+    if (results.length === 0) {
+      return { ok: false, message: "自动检索没有返回结果（真实 Crossref）" + (lastError ? "：" + lastError : ""), queryUsed: used, results: [] };
+    }
+    return { ok: true, message: "自动检索完成：基于" + used.length + " 条检索式，共找到 " + results.length + " 条真实文献（已按 DOI 去重）", queryUsed: used, results };
+  }
+
   /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */
   saveItem(projectId: string, input: LiteratureInput, opts: { note?: string; manuallyVerified?: boolean }): SaveOutcome {
     const doi = normalizeDoi(input.doi ?? "");
@@ -139,9 +190,9 @@ export class LiteratureService {
     if (!role) return { ok: false, message: "未配置「检索辅助」角色模型：请先在「服务与模型设置 → 任务角色」中分配服务商与模型" };
     try {
       const content = await chat({
-        profile: role.profile,
+        channel: role.channel,
         apiKey: role.apiKey,
-        network: { mode: role.profile.mode, proxyUrl: role.profile.proxyUrl },
+
         messages: [
           { role: "system", content: "你是学术检索助手。根据研究主题生成 3-5 条适合学术数据库（如 Crossref、arXiv、PubMed）检索的检索式。只输出检索式，每条一行，不要编号，不要解释。" },
           { role: "user", content: "研究主题：" + topic.trim() },
@@ -154,7 +205,7 @@ export class LiteratureService {
         .map((s) => s.replace(/^[\d.\-*•]+/, "").trim())
         .filter((s) => s.length > 1 && s.length < 200);
       if (queries.length === 0) return { ok: false, message: "模型未返回有效检索式（未保存任何内容）" };
-      return { ok: true, message: "AI 生成的检索式（未经检索验证），请选择一条实际执行检索", queries: queries.slice(0, 5), provider: role.profile.name, model: role.model };
+      return { ok: true, message: "AI 生成的检索式（未经检索验证），请选择一条实际执行检索", queries: queries.slice(0, 5), provider: role.channel.name, model: role.channel.model };
     } catch (error) {
       return { ok: false, message: "检索式生成失败：" + (error instanceof Error ? error.message : String(error)) };
     }

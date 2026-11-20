@@ -145,6 +145,8 @@ export const METHOD_TEMPLATES: Record<string, MethodTemplate> = {
         { key: "measures", label: "测量方式", kind: "textarea", placeholder: "量表、来源、改编说明" },
         { key: "sampling", label: "样本与抽样设计", kind: "textarea" },
         { key: "hypotheses", label: "研究假设卡片", kind: "textarea", placeholder: "H1、H2…… 每条对应变量关系；横截面相关不写成因果" },
+        { key: "abstract", label: "论文摘要（在研究设计基础上生成）", kind: "textarea", placeholder: "含研究背景、方法与预期内容；数据引用须真实（选填）" },
+        { key: "outline", label: "内容框架（章节提纲）", kind: "textarea", placeholder: "绪论 → 概念与理论 → 实证分析 → 问题与对策 → 结论与展望（选填）" },
       ],
       instruments: [
         { key: "scale_source", label: "量表来源与授权", kind: "textarea", placeholder: "量表存在不代表允许无限复制，需记录来源与授权" },

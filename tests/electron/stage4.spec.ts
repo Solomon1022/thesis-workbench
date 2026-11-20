@@ -115,15 +115,15 @@ test("阶段 4：全局 AI 助手（建议+对话）→ 变量 → 假设 → �
 
     // 配置模型并分配研究设计角色
     await page.getByRole("button", { name: "服务与模型设置" }).click();
-    await page.getByRole("button", { name: "自定义 / OpenAI 兼容中转" }).click();
+    await page.getByLabel("服务商模板（可选，快速填充）").selectOption("custom");
+    await page.getByLabel("线路名称 *").fill("测试线路");
     await page.getByLabel("Base URL *").fill(model.base);
     await page.getByLabel("模型名 *").fill("test-model");
     await page.getByLabel("API Key").fill("sk-mock");
-    await page.getByRole("button", { name: "保存配置" }).click();
+    await page.getByRole("button", { name: "添加线路" }).click();
     await expect(page.getByText(/密钥已加密保存到本机/)).toBeVisible();
     await page.getByRole("button", { name: "任务角色" }).click();
-    await page.getByLabel("研究设计服务商").selectOption("custom");
-    await page.getByRole("button", { name: "保存研究设计" }).click();
+    await page.getByLabel("研究设计服务商").selectOption({ index: 1 });
     await expect(page.getByText("角色配置已保存")).toBeVisible();
     await page.getByRole("button", { name: "返回项目" }).click();
 

@@ -1,59 +1,115 @@
 import { safeStorage } from "electron";
 import type { ThesisDB } from "./db";
-import type { ConnectionLayerResult, ModelProfile, NetworkConfig, RoleAssignment, RoleKey } from "../shared/settings";
-import { DEFAULT_NETWORK, MODEL_PRESETS } from "../shared/settings";
+import type { ConnectionLayerResult, ModelChannel, TaskRoleKey } from "../shared/settings";
 import { testConnection } from "./model-service";
 
+export interface ChannelSnapshot extends ModelChannel {
+  hasKey: boolean;
+}
+
 export interface SettingsSnapshot {
-  profiles: Array<ModelProfile & NetworkConfig>;
-  /** 用户已添加（保存过配置）的服务商 key，任务角色只从这些里选 */
-  configuredKeys: string[];
-  secretStatus: Record<string, boolean>;
-  roles: RoleAssignment[];
+  channels: ChannelSnapshot[];
+  roles: Array<{ roleKey: TaskRoleKey; channelId: string }>;
   encryptionAvailable: boolean;
   contactEmail: string;
 }
 
-/** 模型与角色设置服务。密钥经 safeStorage（系统加密）存储，渲染层永远拿不到明文。 */
+function parseOverridesHeader(json: string): Record<string, string> {
+  try {
+    const p = JSON.parse(json);
+    if (p && typeof p === "object" && !Array.isArray(p)) {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(p as Record<string, unknown>)) out[k] = String(v);
+      return out;
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
+function parseOverridesBody(json: string): Record<string, unknown> {
+  try {
+    const p = JSON.parse(json);
+    if (p && typeof p === "object" && !Array.isArray(p)) return p as Record<string, unknown>;
+  } catch { /* ignore */ }
+  return {};
+}
+
+/** 模型服务：多线路（每条线路独立配置），密钥经 safeStorage 加密，渲染层拿不到明文。 */
 export class SettingsService {
   private tests = new Map<string, AbortController>();
 
   constructor(private db: ThesisDB) {}
 
   getSettings(): SettingsSnapshot {
-    const stored = new Map(this.db.listModelProfiles().map((p) => [p.providerKey, p]));
-    const profiles = MODEL_PRESETS.map((preset) => stored.get(preset.providerKey) ?? { ...preset, ...DEFAULT_NETWORK });
+    const keyStatus = this.db.secretStatusByChannel();
     return {
-      profiles,
-      configuredKeys: this.db.listModelProfiles().map((p) => p.providerKey),
-      secretStatus: this.db.secretStatus(),
-      roles: this.db.listRoleAssignments(),
+      channels: this.db.listChannels().map((c) => ({
+        id: c.id,
+        providerKey: c.providerKey,
+        name: c.name,
+        baseUrl: c.baseUrl,
+        model: c.model,
+        apiStyle: c.apiStyle as ModelChannel["apiStyle"],
+        thinkingLevel: c.thinkingLevel as ModelChannel["thinkingLevel"],
+        userAgent: c.userAgent,
+        network: { mode: c.networkMode as ModelChannel["network"]["mode"], proxyUrl: c.proxyUrl },
+        headerOverrides: parseOverridesHeader(c.headerOverrides),
+        bodyOverrides: parseOverridesBody(c.bodyOverrides),
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        hasKey: keyStatus[c.id] ?? false,
+      })),
+      roles: this.db.listRoleChannels().map((r) => ({ roleKey: r.roleKey as TaskRoleKey, channelId: r.channelId })),
       encryptionAvailable: safeStorage.isEncryptionAvailable(),
       contactEmail: this.db.getAppSetting("contact_email"),
     };
   }
 
-  saveProfile(profile: ModelProfile, network: NetworkConfig): void {
-    this.db.upsertModelProfile(
-      { ...profile, name: profile.name.trim(), baseUrl: profile.baseUrl.trim().replace(/\/+$/, ""), model: profile.model.trim() },
-      { mode: network.mode, proxyUrl: network.proxyUrl.trim() },
-    );
+  saveChannel(input: {
+    id?: string; providerKey: string; name: string; baseUrl: string; model: string; apiStyle: string; thinkingLevel: string;
+    userAgent: string; network: { mode: string; proxyUrl: string }; headerOverrides: string; bodyOverrides: string;
+  }): string {
+    // 校验 JSON 覆盖字段可解析
+    parseOverridesHeader(input.headerOverrides);
+    parseOverridesBody(input.bodyOverrides);
+    return this.db.upsertChannel({
+      id: input.id,
+      providerKey: input.providerKey,
+      name: input.name.trim(),
+      baseUrl: input.baseUrl.trim().replace(/\/+$/, ""),
+      model: input.model.trim(),
+      apiStyle: input.apiStyle,
+      thinkingLevel: input.thinkingLevel,
+      userAgent: input.userAgent.trim(),
+      networkMode: input.network.mode,
+      proxyUrl: input.network.proxyUrl.trim(),
+      headerOverrides: input.headerOverrides,
+      bodyOverrides: input.bodyOverrides,
+    });
+  }
+
+  deleteChannel(id: string): void {
+    this.db.deleteChannel(id);
   }
 
   /** 保存密钥：空密钥不覆盖；加密后只存密文。 */
-  saveSecret(providerKey: string, apiKey: string): boolean {
+  saveSecret(channelId: string, apiKey: string): boolean {
     const key = apiKey.trim();
     if (!key) return false;
     if (!safeStorage.isEncryptionAvailable()) {
       throw new Error("当前系统不支持安全加密存储（safeStorage 不可用），密钥未保存");
     }
     const ciphertext = safeStorage.encryptString(key).toString("base64");
-    this.db.setModelSecret(providerKey, ciphertext);
+    this.db.setChannelSecret(channelId, ciphertext);
     return true;
   }
 
-  deleteSecret(providerKey: string): void {
-    this.db.deleteModelSecret(providerKey);
+  deleteSecret(channelId: string): void {
+    this.db.deleteChannelSecret(channelId);
+  }
+
+  saveRole(roleKey: TaskRoleKey, channelId: string): void {
+    this.db.setRoleChannel(roleKey, channelId);
   }
 
   saveContactEmail(email: string): void {
@@ -64,38 +120,46 @@ export class SettingsService {
     return this.db.getAppSetting("contact_email");
   }
 
-  saveRole(roleKey: RoleKey, providerKey: string, model: string): void {
-    this.db.setRoleAssignment(roleKey, providerKey, model.trim());
-  }
-
-  /** 解析某任务角色的可用调用配置（服务商 + 模型 + 明文密钥，仅主进程内使用）。未配置返回 null。 */
-  resolveRole(roleKey: RoleKey): { profile: ModelProfile & NetworkConfig; apiKey: string; model: string } | null {
-    const assignment = this.db.listRoleAssignments().find((r) => r.roleKey === roleKey);
-    if (!assignment || !assignment.providerKey) return null;
-    const stored = this.db.listModelProfiles().find((p) => p.providerKey === assignment.providerKey);
-    const preset = MODEL_PRESETS.find((p) => p.providerKey === assignment.providerKey);
-    const profile = stored ?? (preset ? { ...preset, ...DEFAULT_NETWORK } : null);
-    if (!profile || !profile.baseUrl) return null;
-    const model = (assignment.model || profile.model).trim();
-    if (!model) return null;
-    const ciphertext = this.db.getModelSecret(assignment.providerKey);
+  /** 解析某任务角色的可用调用配置（线路 + 明文密钥，仅主进程内使用）。未配置返回 null。 */
+  resolveRole(roleKey: TaskRoleKey): { channel: ModelChannel; apiKey: string } | null {
+    const assignment = this.db.listRoleChannels().find((r) => r.roleKey === roleKey);
+    if (!assignment || !assignment.channelId) return null;
+    const row = this.db.listChannels().find((c) => c.id === assignment.channelId);
+    if (!row || !row.baseUrl || !row.model) return null;
+    const ciphertext = this.db.getChannelSecret(row.id);
     if (!ciphertext) return null;
     try {
-      return { profile, apiKey: safeStorage.decryptString(Buffer.from(ciphertext, "base64")), model };
+      const apiKey = safeStorage.decryptString(Buffer.from(ciphertext, "base64"));
+      return {
+        channel: {
+          id: row.id,
+          providerKey: row.providerKey,
+          name: row.name,
+          baseUrl: row.baseUrl,
+          model: row.model,
+          apiStyle: row.apiStyle as ModelChannel["apiStyle"],
+          thinkingLevel: row.thinkingLevel as ModelChannel["thinkingLevel"],
+          userAgent: row.userAgent,
+          network: { mode: row.networkMode as ModelChannel["network"]["mode"], proxyUrl: row.proxyUrl },
+          headerOverrides: parseOverridesHeader(row.headerOverrides),
+          bodyOverrides: parseOverridesBody(row.bodyOverrides),
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        },
+        apiKey,
+      };
     } catch {
       return null;
     }
   }
 
   /** 三层连接测试；testId 用于取消。 */
-  async testConnection(testId: string, providerKey: string): Promise<ConnectionLayerResult[]> {
-    const stored = this.db.listModelProfiles().find((p) => p.providerKey === providerKey);
-    const preset = MODEL_PRESETS.find((p) => p.providerKey === providerKey);
-    const profile = stored ?? (preset ? { ...preset, ...DEFAULT_NETWORK } : null);
-    if (!profile) return [{ layer: "auth", ok: false, message: "未知服务商" }];
-    if (!profile.baseUrl.trim()) return [{ layer: "auth", ok: false, message: "未填写 Base URL，请先保存配置" }];
-    if (!profile.model.trim()) return [{ layer: "auth", ok: false, message: "未填写模型名，请先保存配置" }];
-    const ciphertext = this.db.getModelSecret(providerKey);
+  async testConnection(testId: string, channelId: string): Promise<ConnectionLayerResult[]> {
+    const row = this.db.listChannels().find((c) => c.id === channelId);
+    if (!row) return [{ layer: "auth", ok: false, message: "线路不存在" }];
+    if (!row.baseUrl.trim()) return [{ layer: "auth", ok: false, message: "未填写 Base URL" }];
+    if (!row.model.trim()) return [{ layer: "auth", ok: false, message: "未填写模型名" }];
+    const ciphertext = this.db.getChannelSecret(channelId);
     if (!ciphertext) return [{ layer: "auth", ok: false, message: "未配置密钥：请先保存 API Key" }];
     let apiKey: string;
     try {
@@ -103,17 +167,26 @@ export class SettingsService {
     } catch {
       return [{ layer: "auth", ok: false, message: "密钥解密失败：可能由其他系统账户加密，请重新输入密钥" }];
     }
+    const channel: ModelChannel = {
+      id: row.id,
+      providerKey: row.providerKey,
+      name: row.name,
+      baseUrl: row.baseUrl,
+      model: row.model,
+      apiStyle: row.apiStyle as ModelChannel["apiStyle"],
+      thinkingLevel: row.thinkingLevel as ModelChannel["thinkingLevel"],
+      userAgent: row.userAgent,
+      network: { mode: row.networkMode as ModelChannel["network"]["mode"], proxyUrl: row.proxyUrl },
+      headerOverrides: parseOverridesHeader(row.headerOverrides),
+      bodyOverrides: parseOverridesBody(row.bodyOverrides),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
     const controller = new AbortController();
     this.tests.set(testId, controller);
-    // 取消（外部 abort）与超时（20 秒）共用一个信号
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]);
     try {
-      return await testConnection({
-        profile,
-        apiKey,
-        network: { mode: profile.mode, proxyUrl: profile.proxyUrl },
-        signal,
-      });
+      return await testConnection({ channel, apiKey, signal });
     } finally {
       this.tests.delete(testId);
     }

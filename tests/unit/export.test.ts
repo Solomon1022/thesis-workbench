@@ -43,7 +43,8 @@ describe("备份与快照（阶段 6.3）", () => {
     db.updateDataFileStoredPath(dataId, dataPath);
     db.insertAnalysisRun({ projectId: pid, dataFileId: dataId, method: "descriptive", paramsJson: "{}", resultsJson: "{\"a\":{}}", formula: "mean", status: "ok", message: "" });
     // 密钥（应用级，不应出现在备份里）
-    db.setModelSecret("deepseek", "BASE64-CIPHERTEXT-SECRET");
+    const secretChannel = db.upsertChannel({ providerKey: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-pro", apiStyle: "openai-chat", thinkingLevel: "none", userAgent: "", networkMode: "direct", proxyUrl: "", headerOverrides: "{}", bodyOverrides: "{}" });
+  db.setChannelSecret(secretChannel, "BASE64-CIPHERTEXT-SECRET");
     return { pid, litId: lit.id, dataId };
   }
 

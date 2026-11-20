@@ -39,6 +39,8 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const [claim, setClaim] = useState("");
   const [location, setLocation] = useState("");
   const [showCN, setShowCN] = useState(false);
+  const [autoState, setAutoState] = useState<{ ok: boolean; message: string; queryUsed: string[]; results: Candidate[] } | null>(null);
+  const [autoBusy, setAutoBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     const a = api();
@@ -101,6 +103,29 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const runAutoSearch = async () => {
+    const a = api();
+    if (!a || autoBusy) return;
+    setAutoBusy(true);
+    setError("");
+    try {
+      const r = await a.literatureAutoSearch(projectId);
+      setAutoState(r);
+      if (r.ok) {
+        setCandidates(r.results);
+        setOutcomeMeta({ source: "Crossref（一键自动检索）", query: r.queryUsed.join(" / "), status: "ok", message: r.message, time: new Date().toLocaleTimeString("zh-CN", { hour12: false }) });
+        setMessage(r.message);
+        void refresh();
+      } else {
+        setError(r.message);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAutoBusy(false);
     }
   };
 
@@ -219,6 +244,14 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   return (
     <div className="literature-panel">
       <section className="card">
+        <div className="card-head-row">
+          <h3 className="ai-title">一键自动找文献（基于已确定的选题、变量与摘要）</h3>
+          <button className="btn btn-primary" disabled={autoBusy} onClick={() => void runAutoSearch()}>{autoBusy ? "检索中…" : "自动找文献（含地址）"}</button>
+        </div>
+        <p className="muted">根据「前期检索与选题」「研究问题与设计」里已填的方向、变量与摘要自动推导检索式，直接检索真实 Crossref 数据源；每条文献的地址在下方结果中直接给出，可一键保存入库。</p>
+        {autoState && autoState.ok && <p className="muted">本次检索式：{autoState.queryUsed.join("；")}</p>}
+      </section>
+      <section className="card">
         <h2 className="card-title">检索与核验（真实学术数据源）</h2>
         <p className="muted">检索与 DOI 核验均直接调用公开学术数据源，不生成、不虚构文献。真实检索式、来源与时间会记入检索记录。</p>
         <div className="lit-search-row">
@@ -256,6 +289,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
                   <div className="lit-title">{c.title}{c.preprint && <span className="badge badge-warn">预印本</span>}</div>
                   <div className="muted">{c.authors}{c.year ? "（" + c.year + "）" : ""}{c.venue ? " · " + c.venue : ""}</div>
                   <div className="muted">DOI: {c.doi || "无"}</div>
+                  {c.url && <div className="muted lit-url">来源地址：<a href={c.url} onClick={(e) => { e.preventDefault(); openUrl(c.url); }}>{c.url}</a></div>}
                 </div>
                 <div className="lit-candidate-actions">
                   {c.url && <button className="btn btn-sm" onClick={() => openUrl(c.url)}>打开来源</button>}

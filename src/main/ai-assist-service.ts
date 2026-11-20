@@ -127,9 +127,9 @@ export class AiAssistService {
     ].filter((s) => s !== "").join("\n");
     const user = this.stageContext(projectId, stageKey) + "\n\n需要生成建议的字段：" + targetText;
     const raw = await chat({
-      profile: role.profile,
+      channel: role.channel,
       apiKey: role.apiKey,
-      network: { mode: role.profile.mode, proxyUrl: role.profile.proxyUrl },
+
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -150,7 +150,7 @@ export class AiAssistService {
     if (suggestions.length === 0 && !advice) {
       return { ok: false, message: "模型未返回有效建议（未填入任何内容）" };
     }
-    return { ok: true, message: "建议已生成（不会自动填入，请在下方查看并选择采用）", suggestions, advice, provider: role.profile.name, model: role.model };
+    return { ok: true, message: "建议已生成（不会自动填入，请在下方查看并选择采用）", suggestions, advice, provider: role.channel.name, model: role.channel.model };
   }
 
   /** 实时对话：保留本阶段历史，用户可随时追问或重新提问。 */
@@ -169,9 +169,9 @@ export class AiAssistService {
       { role: "user", content: message.trim() },
     ];
     const raw = await chat({
-      profile: role.profile,
+      channel: role.channel,
       apiKey: role.apiKey,
-      network: { mode: role.profile.mode, proxyUrl: role.profile.proxyUrl },
+
       messages,
       maxTokens: 8000,
       temperature: 0.5,

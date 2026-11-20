@@ -170,9 +170,9 @@ export class WritingService {
     const materialsText = buildMaterials(hits);
     const user = materialsText + "\n\n" + instruction.trim();
     const raw = await chat({
-      profile: role.profile,
+      channel: role.channel,
       apiKey: role.apiKey,
-      network: { mode: role.profile.mode, proxyUrl: role.profile.proxyUrl },
+
       messages: [
         { role: "system", content: WRITING_SYSTEM_PROMPT },
         { role: "user", content: user },
@@ -221,8 +221,8 @@ export class WritingService {
       nextSteps: Array.isArray(parsed?.next_steps) ? parsed.next_steps.map(String) : [],
       materials: hits.map((h) => ({ refId: h.refId, title: h.title, url: h.url, kind: h.kind })),
       unlistedRefs,
-      provider: role.profile.name,
-      model: role.model,
+      provider: role.channel.name,
+      model: role.channel.model,
     };
   }
 }

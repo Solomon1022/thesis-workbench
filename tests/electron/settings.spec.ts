@@ -74,11 +74,12 @@ test("模型配置、三层连接测试、取消与角色分配可持久化", as
     await page.getByRole("button", { name: "服务与模型设置" }).click();
     await expect(page.getByText("服务与模型设置", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "模型服务" })).toBeVisible();
-    await page.getByRole("button", { name: "自定义 / OpenAI 兼容中转" }).click();
+    await page.getByLabel("服务商模板（可选，快速填充）").selectOption("custom");
+    await page.getByLabel("线路名称 *").fill("测试线路");
     await page.getByLabel("Base URL *").fill(mock.baseUrl);
     await page.getByLabel("模型名 *").fill("test-model");
     await page.getByLabel("API Key").fill("sk-test-123");
-    await page.getByRole("button", { name: "保存配置" }).click();
+    await page.getByRole("button", { name: "添加线路" }).click();
     await expect(page.getByText(/密钥已加密保存到本机/)).toBeVisible();
 
     // 三层全部通过
@@ -103,9 +104,7 @@ test("模型配置、三层连接测试、取消与角色分配可持久化", as
 
     // 任务角色分配
     await page.getByRole("button", { name: "任务角色" }).click();
-    await page.getByLabel("研究设计服务商").selectOption("custom");
-    await expect(page.getByLabel("研究设计模型名")).toHaveValue("test-model");
-    await page.getByRole("button", { name: "保存研究设计" }).click();
+    await page.getByLabel("研究设计服务商").selectOption({ index: 1 });
     await expect(page.getByText("角色配置已保存")).toBeVisible();
   } finally {
     await app.close();
@@ -117,13 +116,13 @@ test("模型配置、三层连接测试、取消与角色分配可持久化", as
     const page2 = await app2.firstWindow();
     await expect(page2.getByText("论文研究，从这里开始")).toBeVisible({ timeout: 30_000 });
     await page2.getByRole("button", { name: "服务与模型设置" }).click();
-    await page2.getByRole("button", { name: "自定义 / OpenAI 兼容中转" }).click();
+    await expect(page2.getByText("测试线路")).toBeVisible();
+    await page2.locator(".lit-item").filter({ hasText: "测试线路" }).getByRole("button", { name: "编辑" }).click();
     await expect(page2.getByLabel("Base URL *")).toHaveValue(mock.baseUrl);
     await expect(page2.getByLabel("模型名 *")).toHaveValue("test-model");
-    await expect(page2.getByText("已配置", { exact: true }).first()).toBeVisible();
+    await expect(page2.getByText(/已加密保存到本机/).first()).toBeVisible();
     await page2.getByRole("button", { name: "任务角色" }).click();
-    await expect(page2.getByLabel("研究设计服务商")).toHaveValue("custom");
-    await expect(page2.getByLabel("研究设计模型名")).toHaveValue("test-model");
+    await expect(page2.getByLabel("研究设计服务商")).not.toHaveValue("");
   } finally {
     await app2.close();
     await mock.close();
