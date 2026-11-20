@@ -11,6 +11,8 @@ export interface ExistingMaterials {
 export interface ProjectInput {
   name: string;
   disciplines: string[];
+  /** 全部研究方法（可多选，含自定义）；researchMethod 为驱动阶段模板的主要方法 */
+  methods: string[];
   researchMethod: string;
   educationLevel: string;
   deadline: string;
@@ -21,6 +23,7 @@ export interface Project {
   id: string;
   name: string;
   disciplines: string[];
+  methods: string[];
   researchMethod: string;
   educationLevel: string;
   deadline: string;

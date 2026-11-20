@@ -15,9 +15,9 @@ test("审阅意见：新增→状态流转→筛选→修改说明→重启持�
     await expect(page.getByText("论文研究，从这里开始")).toBeVisible({ timeout: 30_000 });
 
     await page.getByRole("button", { name: "新建项目" }).click();
+    await page.getByRole("button", { name: "电子商务", exact: true }).click();
     await page.getByLabel("项目名称 *").fill("审阅测试-" + Date.now());
-    await page.getByText("电子商务", { exact: true }).click();
-    await page.getByLabel("研究方法 *").selectOption("questionnaire");
+    await page.getByRole("button", { name: "问卷定量研究", exact: true }).click();
     await page.getByRole("button", { name: "创建项目" }).click();
 
     await page.getByRole("button", { name: /审阅与修改/ }).click();

@@ -24,9 +24,9 @@ test("文档导出：真实内容 → DOCX/PDF 文件存在且格式正确", asy
 
     // 建项目 + 真实内容（标题/摘要/关键词/设计/草稿）
     await page.getByRole("button", { name: "新建项目" }).click();
+    await page.getByRole("button", { name: "电子商务", exact: true }).click();
     await page.getByLabel("项目名称 *").fill("导出测试-" + Date.now());
-    await page.getByText("电子商务", { exact: true }).click();
-    await page.getByLabel("研究方法 *").selectOption("questionnaire");
+    await page.getByRole("button", { name: "问卷定量研究", exact: true }).click();
     await page.getByRole("button", { name: "创建项目" }).click();
     await page.getByRole("button", { name: /初稿与完整稿/ }).click();
     await page.getByRole("button", { name: "开始此阶段" }).click();

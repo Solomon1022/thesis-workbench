@@ -78,9 +78,9 @@ test("阶段 5：数据导入 → 本地分析 → AI 解释 → 重启持久化
 
     // 建项目 → 数据导入
     await page.getByRole("button", { name: "新建项目" }).click();
+    await page.getByRole("button", { name: "电子商务", exact: true }).click();
     await page.getByLabel("项目名称 *").fill("数据测试-" + Date.now());
-    await page.getByText("电子商务", { exact: true }).click();
-    await page.getByLabel("研究方法 *").selectOption("questionnaire");
+    await page.getByRole("button", { name: "问卷定量研究", exact: true }).click();
     await page.getByRole("button", { name: "创建项目" }).click();
     await page.getByRole("button", { name: /资料收集/ }).click();
     await page.getByRole("button", { name: "开始此阶段" }).click();

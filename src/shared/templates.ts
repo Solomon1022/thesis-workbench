@@ -171,17 +171,22 @@ export const METHOD_TEMPLATES: Record<string, MethodTemplate> = {
   },
 };
 
-/** 研究方法列表（含尚未提供专门模板的方法，明确标注） */
+/** 研究方法列表（多选；只有前三个有专门阶段模板，其余用通用字段并明确标注） */
 export const METHOD_ORDER: Array<{ key: string; label: string; note?: string }> = [
-  { key: "chemistry-experiment", label: "化学与材料实验研究" },
-  { key: "ai-algorithm", label: "AI/算法与系统研究" },
   { key: "questionnaire", label: "问卷定量研究" },
-  { key: "public-data", label: "公开/二手数据研究", note: "专门模板待补充（后续阶段）" },
-  { key: "interview", label: "访谈/案例研究", note: "专门模板待补充（后续阶段）" },
-  { key: "literature-review", label: "文献综述", note: "专门模板待补充（后续阶段）" },
-  { key: "bio-experiment", label: "生物/医学实验研究", note: "专门模板待补充（后续阶段）" },
-  { key: "engineering", label: "数字技术/工程设计研究", note: "专门模板待补充（后续阶段）" },
-  { key: "quasi-experimental", label: "准实验/复杂计量/混合方法", note: "专门模板待补充（后续阶段）" },
+  { key: "interview", label: "访谈研究" },
+  { key: "case-study", label: "案例分析" },
+  { key: "content-analysis", label: "内容/文本分析" },
+  { key: "experiment", label: "实验研究（真实验/准实验）" },
+  { key: "secondary-data", label: "二手数据分析" },
+  { key: "literature-review", label: "文献综述（概念/理论辨析）" },
+  { key: "chemistry-experiment", label: "化学与材料实验" },
+  { key: "ai-algorithm", label: "AI/算法设计" },
+  { key: "system-design", label: "系统/工程设计" },
+  { key: "mixed", label: "混合方法研究" },
+  { key: "public-data", label: "公开数据研究", note: "专门模板待补充" },
+  { key: "bio-experiment", label: "生物/医学实验", note: "专门模板待补充" },
+  { key: "quasi-experimental", label: "准实验/复杂计量", note: "专门模板待补充" },
 ];
 
 /** 取某方法在某阶段的字段（无专门模板时用通用字段） */

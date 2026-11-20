@@ -90,6 +90,8 @@ const api = {
   aiClearConversations: (projectId: string, stageKey: string) => ipcRenderer.invoke("ai:clearConversations", projectId, stageKey),
   aiProjectKnowledge: (projectId: string): Promise<string> => ipcRenderer.invoke("ai:projectKnowledge", projectId),
   aiTopicOptions: (projectId: string): Promise<{ ok: boolean; message: string; options?: Array<{ title: string; rationale: string }> }> => ipcRenderer.invoke("ai:topicOptions", projectId),
+  aiSuggestTitles: (input: { education: string; disciplines: string[]; methods?: string[]; materials?: Record<string, string>; deadline?: string }): Promise<{ ok: boolean; message: string; titles?: Array<{ title: string; rationale: string; risk: string }> }> => ipcRenderer.invoke("ai:suggestTitles", input),
+  aiSuggestMethods: (input: { education: string; disciplines: string[]; topic: string }): Promise<{ ok: boolean; message: string; suggestions?: Array<{ method: string; reason: string; methodKey?: string }> }> => ipcRenderer.invoke("ai:suggestMethods", input),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);

@@ -7,6 +7,7 @@ test("三种方法模板与项目内容可在重启后恢复", async () => {
   const userDataDir = mkdtempSync(path.join(tmpdir(), "thesis-workbench-e2e-"));
   const env = { ...process.env, NODE_ENV: "test", TWB_TEST_USER_DATA: userDataDir, ELECTRON_DEV_URL: "http://localhost:5173" } as { [key: string]: string };
   delete env.ELECTRON_RUN_AS_NODE;
+  const METHOD_CHIP: Record<string, string> = { "chemistry-experiment": "化学与材料实验", "ai-algorithm": "AI/算法设计", questionnaire: "问卷定量研究" };
   const specs = [
     { name: "化学测试-" + Date.now(), discipline: "化学与材料", method: "chemistry-experiment", goal: "研究假设或设计目标", field: "样品与材料体系", exclusive: "数据集来源与许可", value: "样品记录" },
     { name: "AI测试-" + Date.now(), discipline: "人工智能与计算机", method: "ai-algorithm", goal: "设计目标或研究假设", field: "数据集来源与许可", exclusive: "样品与材料体系", value: "数据集版本记录" },
@@ -20,18 +21,18 @@ test("三种方法模板与项目内容可在重启后恢复", async () => {
     expect(path.resolve(runtime)).toBe(path.resolve(userDataDir));
     await expect(page.getByText("论文研究，从这里开始")).toBeVisible({ timeout: 30000 });
     await page.getByRole("button", { name: "新建项目" }).click();
+    await page.getByRole("button", { name: "电子商务", exact: true }).click();
     await page.getByLabel("项目名称 *").fill("已有题目测试");
-    await page.getByText("电子商务", { exact: true }).click();
-    await page.getByLabel("研究方法 *").selectOption("questionnaire");
+    await page.getByRole("button", { name: "问卷定量研究", exact: true }).click();
     await page.getByRole("checkbox", { name: "已有题目" }).check();
     await page.getByPlaceholder("粘贴或简要描述内容").fill("已知题目内容");
     await page.getByRole("button", { name: "创建项目" }).click();
     await expect(page.getByRole("heading", { name: "研究问题与设计" })).toBeVisible();
     for (const spec of specs) {
       await page.getByRole("button", { name: "新建项目" }).click();
+      await page.getByRole("button", { name: spec.discipline, exact: true }).click();
       await page.getByLabel("项目名称 *").fill(spec.name);
-      await page.getByText(spec.discipline, { exact: true }).click();
-      await page.getByLabel("研究方法 *").selectOption(spec.method);
+      await page.getByRole("button", { name: METHOD_CHIP[spec.method], exact: true }).click();
       await page.getByRole("button", { name: "创建项目" }).click();
       await page.getByRole("button", { name: /研究问题与设计/ }).click();
       await page.getByRole("button", { name: "开始此阶段" }).click();

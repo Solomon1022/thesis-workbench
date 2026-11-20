@@ -28,9 +28,9 @@ test("创建项目→模板差异→保存→重启恢复", async () => {
 
     // 新建化学实验项目
     await page.getByRole("button", { name: "新建项目" }).click();
+    await page.getByRole("button", { name: "化学与材料", exact: true }).click();
     await page.getByLabel("项目名称 *").fill(runName);
-    await page.getByText("化学与材料", { exact: true }).click();
-    await page.getByLabel("研究方法 *").selectOption("chemistry-experiment");
+    await page.getByRole("button", { name: "化学与材料实验", exact: true }).click();
     await page.getByRole("button", { name: "创建项目" }).click();
 
     // 带材料为空 → 从「前期检索与选题」开始；进入研究设计阶段看模板字段

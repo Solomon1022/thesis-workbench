@@ -191,6 +191,7 @@ export class ExportService {
     const created = this.db.createProject({
       name: p.name + "（恢复副本）",
       disciplines: p.disciplines,
+      methods: (p as { methods?: string[] }).methods ?? (p.researchMethod ? [p.researchMethod] : []),
       researchMethod: p.researchMethod,
       educationLevel: p.educationLevel,
       deadline: p.deadline,

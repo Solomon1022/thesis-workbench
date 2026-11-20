@@ -9,6 +9,15 @@ import { suggestStartStage } from "../shared/templates";
 
 const EMPTY_MATERIALS: ExistingMaterials = { title: "", literature: "", data: "", draft: "", notes: "" };
 
+function parseStringArray(value: unknown): string[] {
+  try {
+    const p = JSON.parse(String(value ?? "[]"));
+    return Array.isArray(p) ? p.map((s) => String(s)) : [];
+  } catch {
+    return [];
+  }
+}
+
 type Row = Record<string, unknown>;
 function litRow(r: Row): LiteratureItem {
   return {
@@ -282,8 +291,16 @@ export class ThesisDB {
     `);
     this.migrateChannels();
     this.migrateVersionName();
+    this.migrateProjectMethods();
   }
 
+
+  /** projects 增加研究方法多选列（老库自动补列）。 */
+  private migrateProjectMethods(): void {
+    try {
+      this.db.exec("ALTER TABLE projects ADD COLUMN methods TEXT NOT NULL DEFAULT '[]'");
+    } catch { /* 列已存在 */ }
+  }
 
   /** stage_versions 增加自定义名称列（老库自动补列）。 */
   private migrateVersionName(): void {
@@ -416,10 +433,10 @@ export class ThesisDB {
     const id = randomUUID();
     const materials: ExistingMaterials = { ...EMPTY_MATERIALS, ...input.materials };
     this.db.prepare(
-      `INSERT INTO projects (id, name, disciplines, research_method, education_level, deadline, materials, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO projects (id, name, disciplines, methods, research_method, education_level, deadline, materials, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      id, input.name.trim(), JSON.stringify(input.disciplines), input.researchMethod,
+      id, input.name.trim(), JSON.stringify(input.disciplines), JSON.stringify(input.methods ?? []), input.researchMethod,
       input.educationLevel, (input.deadline ?? "").trim(), JSON.stringify(materials), now, now,
     );
     // 阶段初始化：已有材料 → 自动跳过中间阶段并从建议阶段开始
@@ -457,7 +474,7 @@ export class ThesisDB {
     return { project: this.rowToProject(row), stages, content };
   }
 
-  updateProject(id: string, patch: { name?: string; deadline?: string; disciplines?: string[]; researchMethod?: string; educationLevel?: string; materials?: ExistingMaterials }): void {
+  updateProject(id: string, patch: { name?: string; deadline?: string; disciplines?: string[]; methods?: string[]; researchMethod?: string; educationLevel?: string; materials?: ExistingMaterials }): void {
     const cur = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as unknown as Row | undefined;
     if (!cur) throw new Error("项目不存在");
     let disciplines: string[] = [];
@@ -465,11 +482,12 @@ export class ThesisDB {
     let materials = EMPTY_MATERIALS;
     try { materials = { ...EMPTY_MATERIALS, ...(JSON.parse(String(cur.materials)) as ExistingMaterials) }; } catch { /* keep empty */ }
     this.db.prepare(
-      "UPDATE projects SET name = ?, deadline = ?, disciplines = ?, research_method = ?, education_level = ?, materials = ?, updated_at = ? WHERE id = ?"
+      "UPDATE projects SET name = ?, deadline = ?, disciplines = ?, methods = ?, research_method = ?, education_level = ?, materials = ?, updated_at = ? WHERE id = ?"
     ).run(
       patch.name ?? String(cur.name),
       patch.deadline ?? String(cur.deadline ?? ""),
       JSON.stringify(patch.disciplines ?? disciplines),
+      JSON.stringify(patch.methods ?? parseStringArray(cur.methods)),
       patch.researchMethod ?? String(cur.research_method),
       patch.educationLevel ?? String(cur.education_level),
       JSON.stringify(patch.materials ?? materials),
@@ -524,7 +542,7 @@ export class ThesisDB {
     return {
       id: String(r.id), name: String(r.name), disciplines, researchMethod: String(r.research_method ?? ""),
       educationLevel: String(r.education_level ?? ""), deadline: String(r.deadline ?? ""),
-      materials, createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
+      materials, methods: parseStringArray(r.methods), createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
     };
   }
   // ===== 文献库 =====

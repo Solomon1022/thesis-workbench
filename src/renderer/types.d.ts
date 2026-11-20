@@ -9,7 +9,7 @@ declare global {
       listProjects(): Promise<Project[]>;
       createProject(input: ProjectInput): Promise<ProjectDetail>;
       getProject(id: string): Promise<ProjectDetail>;
-      updateProject(id: string, patch: Partial<{ name: string; deadline: string; disciplines: string[]; researchMethod: string; educationLevel: string; materials: { title: string; literature: string; data: string; draft: string; notes: string } }>): Promise<void>;
+      updateProject(id: string, patch: Partial<{ name: string; deadline: string; disciplines: string[]; methods: string[]; researchMethod: string; educationLevel: string; materials: { title: string; literature: string; data: string; draft: string; notes: string } }>): Promise<void>;
       deleteProject(id: string): Promise<void>;
       setStageStatus(projectId: string, stageKey: string, status: StageStatus, skipReason: string): Promise<void>;
       setStageContent(projectId: string, stageKey: string, fieldKey: string, value: string): Promise<void>;
@@ -99,6 +99,8 @@ declare global {
       aiClearConversations(projectId: string, stageKey: string): Promise<void>;
       aiProjectKnowledge(projectId: string): Promise<string>;
       aiTopicOptions(projectId: string): Promise<{ ok: boolean; message: string; options?: Array<{ title: string; rationale: string }> }>;
+      aiSuggestTitles(input: { education: string; disciplines: string[]; methods?: string[]; materials?: Record<string, string>; deadline?: string }): Promise<{ ok: boolean; message: string; titles?: Array<{ title: string; rationale: string; risk: string }> }>;
+      aiSuggestMethods(input: { education: string; disciplines: string[]; topic: string }): Promise<{ ok: boolean; message: string; suggestions?: Array<{ method: string; reason: string; methodKey?: string }> }>;
     };
   }
 }

@@ -96,9 +96,9 @@ test("写作管线：接地文献库 → 正文/引用/缺口 → 草稿持久�
 
     // 建项目 → 入库真实文献
     await page.getByRole("button", { name: "新建项目" }).click();
+    await page.getByRole("button", { name: "电子商务", exact: true }).click();
     await page.getByLabel("项目名称 *").fill("写作测试-" + Date.now());
-    await page.getByText("电子商务", { exact: true }).click();
-    await page.getByLabel("研究方法 *").selectOption("questionnaire");
+    await page.getByRole("button", { name: "问卷定量研究", exact: true }).click();
     await page.getByRole("button", { name: "创建项目" }).click();
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
     await page.getByRole("button", { name: "开始此阶段" }).click();

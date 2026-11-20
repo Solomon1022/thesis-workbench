@@ -129,9 +129,9 @@ test("阶段 4：全局 AI 助手（建议+对话）→ 变量 → 假设 → �
 
     // 建问卷项目
     await page.getByRole("button", { name: "新建项目" }).click();
+    await page.getByRole("button", { name: "电子商务", exact: true }).click();
     await page.getByLabel("项目名称 *").fill("阶段4新交互-" + Date.now());
-    await page.getByText("电子商务", { exact: true }).click();
-    await page.getByLabel("研究方法 *").selectOption("questionnaire");
+    await page.getByRole("button", { name: "问卷定量研究", exact: true }).click();
     await page.getByRole("button", { name: "创建项目" }).click();
 
     // 入库一篇真实文献

@@ -14,10 +14,10 @@ import type { ProjectInput, StageStatus } from "../shared/types";
 export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService, exportService: ExportService, documentService: DocumentService, aiAssist: AiAssistService): void {
   ipcMain.handle("runtime", () => ({ platform: process.platform, dbPath: db.path }));
   ipcMain.handle("project:list", () => db.listProjects());
-  ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject(input));
+  ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject({ ...input, methods: (input as ProjectInput & { methods?: string[] }).methods ?? (input.researchMethod ? [input.researchMethod] : []) }));
   ipcMain.handle("project:get", (_e, id: string) => db.getProjectDetail(id));
-  ipcMain.handle("project:update", (_e, id: string, patch: { name?: string; deadline?: string; disciplines?: string[]; researchMethod?: string; educationLevel?: string; materials?: unknown }) =>
-    db.updateProject(id, patch as { name?: string; deadline?: string; disciplines?: string[]; researchMethod?: string; educationLevel?: string; materials?: Parameters<ThesisDB["updateProject"]>[1]["materials"] }));
+  ipcMain.handle("project:update", (_e, id: string, patch: { name?: string; deadline?: string; disciplines?: string[]; methods?: string[]; researchMethod?: string; educationLevel?: string; materials?: unknown }) =>
+    db.updateProject(id, patch as { name?: string; deadline?: string; disciplines?: string[]; methods?: string[]; researchMethod?: string; educationLevel?: string; materials?: Parameters<ThesisDB["updateProject"]>[1]["materials"] }));
   ipcMain.handle("project:delete", (_e, id: string) => db.deleteProject(id));
   ipcMain.handle("stage:setStatus", (_e, projectId: string, stageKey: string, status: StageStatus, skipReason: string) =>
     db.setStageStatus(projectId, stageKey, status, skipReason));
@@ -117,6 +117,8 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("ai:clearConversations", (_e, projectId: string, stageKey: string) => aiAssist.clearConversations(projectId, stageKey));
   ipcMain.handle("ai:projectKnowledge", (_e, projectId: string) => aiAssist.buildProjectKnowledge(projectId));
   ipcMain.handle("ai:topicOptions", (_e, projectId: string) => aiAssist.topicOptions(projectId));
+  ipcMain.handle("ai:suggestTitles", (_e, input: Parameters<AiAssistService["suggestTitles"]>[0]) => aiAssist.suggestTitles(input));
+  ipcMain.handle("ai:suggestMethods", (_e, input: Parameters<AiAssistService["suggestMethods"]>[0]) => aiAssist.suggestMethods(input));
 
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

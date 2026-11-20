@@ -90,9 +90,9 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
 
     // 建项目 → 进入文献整理
     await page.getByRole("button", { name: "新建项目" }).click();
+    await page.getByRole("button", { name: "化学与材料", exact: true }).click();
     await page.getByLabel("项目名称 *").fill("文献测试-" + Date.now());
-    await page.getByText("化学与材料", { exact: true }).click();
-    await page.getByLabel("研究方法 *").selectOption("chemistry-experiment");
+    await page.getByRole("button", { name: "化学与材料实验", exact: true }).click();
     await page.getByRole("button", { name: "创建项目" }).click();
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
     await page.getByRole("button", { name: "开始此阶段" }).click();
