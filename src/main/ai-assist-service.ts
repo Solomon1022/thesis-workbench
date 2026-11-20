@@ -146,54 +146,95 @@ export class AiAssistService {
     return "当前阶段：" + stageName + "\n\n以下是该论文项目已确定的全部知识（读取储存的信息；不得编造其中没有的文献、数据、样本量）：\n\n" + this.buildProjectKnowledge(projectId);
   }
 
-  /** 生成字段建议：只返回建议，由用户决定是否填入。 */
+  /** 生成字段建议：只返回建议，由用户决定是否填入。
+   *  稳定性设计：目标字段分块（每批≤4）逐批生成；每批最多重试一次；JSON 容错解析；
+   *  全部解析失败时把模型原文作为「整体建议」返回，而不是直接报错。 */
   async suggest(projectId: string, stageKey: string, targets: Array<{ key: string; label: string }>): Promise<SuggestResult> {
     const role = this.roleFor(stageKey);
-    const targetText = targets.map((t) => t.key + "（" + t.label + "）").join("；");
-    const formatHints = targets.map((t) => {
-      if (t.key === "variables") return "\"\"variables\"\" 字段的 content 必须是 JSON 对象：{\"iv\":[\"自变量\"],\"dv\":[\"因变量\"],\"mediator\":[\"中介变量\"],\"custom\":[\"其他变量\"]}，只输出 JSON，不要写说明文字；没有的数组留空 []。";
-      if (t.key === "hypotheses") return "\"\"hypotheses\"\" 字段的 content 必须是 JSON 数组：[{\"number\":\"H1\",\"statement\":\"假设陈述\",\"iv\":\"自变量\",\"dv\":\"因变量\",\"basis\":\"依据或待核验\"}]，只输出 JSON 数组。";
-      return "";
-    }).filter(Boolean).join("\n");
-    const system = [
-      "你是论文写作助手。针对给定字段生成建议内容草稿。",
-      "只输出 JSON，不要任何解释：",
-      '{"fields":[{"key":"字段key","content":"建议内容","note":"一句说明（依据/注意事项；不足时写「待核验」）"}],"advice":"整体建议"}',
-      formatHints ? "字段内容格式要求：" + "\n" + formatHints : "",
-      (stageKey === "design" && targets.some((t) => t.key === "hypotheses")) ? "\n\n" + THEORY_SPEC_SYSTEM : "",
-      "严格禁止编造数据、文献、样本量与统计结果。建议是草稿，由用户决定是否采用；不要替用户做最终决定。",
-    ].filter((s) => s !== "").join("\n");
-    const user = this.stageContext(projectId, stageKey) + "\n\n需要生成建议的字段：" + targetText;
-    const raw = await chat({
-      channel: role.channel,
-      apiKey: role.apiKey,
+    const provider = role.channel.name;
+    const model = role.channel.model;
 
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      maxTokens: 8000,
-      temperature: 0.4,
-      signal: AbortSignal.timeout(240_000),
-    });
-    const parsed = extractJson(raw) as { fields?: unknown; advice?: unknown } | null;
-    const rawFields = Array.isArray(parsed?.fields) ? parsed.fields : [];
-    const validKeys = new Set(targets.map((t) => t.key));
-    const suggestions: FieldSuggestion[] = rawFields.map((f) => {
-      const r = (f ?? {}) as { key?: unknown; content?: unknown; note?: unknown };
-      const key = String(r.key ?? "");
-      // content 可能是字符串或结构化对象（如 hypotheses 数组）：统一为可显示、可填入的文本
-      const content = typeof r.content === "string" ? r.content : r.content == null ? "" : JSON.stringify(r.content);
-      return { key, label: targets.find((t) => t.key === key)?.label ?? key, content: content.trim(), note: String(r.note ?? "").trim() };
-    }).filter((s) => validKeys.has(s.key) && s.content.length > 0);
-    const advice = typeof parsed?.advice === "string" ? parsed.advice : "";
-    if (suggestions.length === 0 && !advice) {
+    const chunks: Array<Array<{ key: string; label: string }>> = [];
+    for (let i = 0; i < targets.length; i += 4) chunks.push(targets.slice(i, i + 4));
+
+    const allSuggestions: FieldSuggestion[] = [];
+    let advice = "";
+    let lastRaw = "";
+    let parsedCount = 0;
+    let failedChunks = 0;
+
+    for (const chunk of chunks) {
+      const chunkText = chunk.map((t) => t.key + "（" + t.label + "）").join("；");
+      const formatHints = chunk.map((t) => {
+        if (t.key === "variables") return "\"variables\" 字段的 content 必须是 JSON 对象：{\"iv\":[\"自变量\"],\"dv\":[\"因变量\"],\"mediator\":[\"中介变量\"],\"custom\":[\"其他变量\"]}，只输出 JSON，不要写说明文字；没有的数组留空 []。";
+        if (t.key === "hypotheses") return "\"hypotheses\" 字段的 content 必须是 JSON 数组：[{\"number\":\"H1\",\"statement\":\"假设陈述\",\"iv\":\"自变量\",\"dv\":\"因变量\",\"basis\":\"依据或待核验\"}]，只输出 JSON 数组。";
+        return "";
+      }).filter(Boolean).join("\n");
+      const systemParts = [
+        "你是论文写作助手。针对给定字段生成建议内容草稿。",
+        "只输出 JSON，不要任何解释、不要 markdown 代码块、不要在 JSON 前后加任何文字：",
+        '{"fields":[{"key":"字段key","content":"建议内容","note":"一句说明（依据/注意事项；不足时写「待核验」）"}],"advice":"整体建议"}',
+        formatHints ? "字段内容格式要求：\n" + formatHints : "",
+        (stageKey === "design" && chunk.some((t) => t.key === "hypotheses")) ? "\n" + THEORY_SPEC_SYSTEM : "",
+        "严格禁止编造数据、文献、样本量与统计结果。建议是草稿，由用户决定是否采用；不要替用户做最终决定。",
+      ].filter((s) => s !== "");
+      const user = this.stageContext(projectId, stageKey) + "\n\n需要生成建议的字段：" + chunkText;
+
+      let raw = "";
+      let chunkSuggestions: FieldSuggestion[] = [];
+      for (let attempt = 0; attempt < 2; attempt++) {
+        raw = await chat({
+          channel: role.channel,
+          apiKey: role.apiKey,
+          messages: [
+            { role: "system", content: systemParts.join("\n") + (attempt === 1 ? "\n\n上次输出无法解析。请只输出一个 JSON 对象，不要代码块，不要前后文字。" : "") },
+            { role: "user", content: user },
+          ],
+          maxTokens: 8000,
+          temperature: attempt === 0 ? 0.4 : 0.2,
+          signal: AbortSignal.timeout(240_000),
+        });
+        lastRaw = raw;
+        const parsed = extractJson(raw) as Record<string, unknown> | Array<unknown> | null;
+        const list = extractFieldList(parsed, chunk);
+        const chunkAdvice = adviceOf(parsed);
+        if (list.length > 0) {
+          chunkSuggestions = list;
+          if (chunkAdvice) advice = advice ? advice + "\n\n" + chunkAdvice : chunkAdvice;
+          break;
+        }
+      }
+      if (chunkSuggestions.length > 0) {
+        const seen = new Set(allSuggestions.map((s) => s.key));
+        for (const s of chunkSuggestions) {
+          if (!seen.has(s.key)) { allSuggestions.push(s); seen.add(s.key); }
+        }
+        parsedCount += chunkSuggestions.length;
+      } else {
+        failedChunks++;
+      }
+    }
+
+    if (parsedCount === 0) {
+      const text = lastRaw.trim();
+      if (text) {
+        return {
+          ok: true,
+          message: "模型返回的内容不是结构化建议，已按「整体建议」展示；可在对话区继续追问，或点「为当前阶段生成建议」重新生成",
+          suggestions: [],
+          advice: text.slice(0, 3000),
+          provider,
+          model,
+        };
+      }
       return { ok: false, message: "模型未返回有效建议（未填入任何内容）" };
     }
-    return { ok: true, message: "建议已生成（不会自动填入，请在下方查看并选择采用）", suggestions, advice, provider: role.channel.name, model: role.channel.model };
+    const msg = "已生成 " + parsedCount + " 条建议（不会自动填入，请在下方查看并选择采用）"
+      + (failedChunks > 0 ? "；有 " + failedChunks + " 批字段未生成成功，可重新生成补充" : "");
+    return { ok: true, message: msg, suggestions: allSuggestions, advice, provider, model };
   }
 
-  /** 实时对话：保留本阶段历史，用户可随时追问或重新提问。 */
+  /** 实时对话：保留本阶段历史，用户可随时追问或重新提问。 */  /** 实时对话：保留本阶段历史，用户可随时追问或重新提问。 */
   async chat(projectId: string, stageKey: string, message: string): Promise<{ ok: boolean; message: string; reply?: string }> {
     const role = this.roleFor(stageKey);
     this.db.appendConversation(projectId, stageKey, "user", message.trim());
@@ -302,4 +343,48 @@ export class AiAssistService {
   clearConversations(projectId: string, stageKey: string): void {
     this.db.clearConversations(projectId, stageKey);
   }
+}
+
+
+/** 从解析结果中容错提取字段列表（兼容数组顶层、fields 为字符串/对象/数组、suggestions 别名、中文标签作 key）。 */
+function extractFieldList(parsed: unknown, targets: Array<{ key: string; label: string }>): Array<{ key: string; label: string; content: string; note: string }> {
+  const labelToKey = new Map(targets.map((t) => [t.label, t.key]));
+  const validKeys = new Set(targets.map((t) => t.key));
+  let rawFields: unknown[] = [];
+  if (Array.isArray(parsed)) {
+    rawFields = parsed;
+  } else if (parsed && typeof parsed === "object") {
+    const obj = parsed as Record<string, unknown>;
+    let f = obj.fields ?? obj.suggestions ?? obj.options ?? obj.items;
+    if (typeof f === "string") {
+      try { f = JSON.parse(f); } catch { f = undefined; }
+    }
+    if (Array.isArray(f)) rawFields = f;
+    else if (f && typeof f === "object" && !Array.isArray(f)) rawFields = [f];
+  }
+  const out: Array<{ key: string; label: string; content: string; note: string }> = [];
+  for (const f of rawFields) {
+    const r = (f ?? {}) as { key?: unknown; content?: unknown; note?: unknown };
+    let key = String(r.key ?? "").trim();
+    if (!validKeys.has(key)) {
+      const byLabel = labelToKey.get(key);
+      if (byLabel) key = byLabel;
+      else continue; // 未知字段：不显示，避免污染
+    }
+    const content = typeof r.content === "string" ? r.content : r.content == null ? "" : JSON.stringify(r.content);
+    const note = typeof r.note === "string" ? r.note : r.note == null ? "" : JSON.stringify(r.note);
+    if (!content.trim()) continue;
+    out.push({ key, label: targets.find((t) => t.key === key)?.label ?? key, content: content.trim(), note: note.trim() });
+  }
+  return out;
+}
+
+/** 提取整体建议文本（advice 可能是字符串，也可能在其它键里）。 */
+function adviceOf(parsed: unknown): string {
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, unknown>;
+    const a = obj.advice ?? obj.summary ?? obj.suggestion;
+    if (typeof a === "string") return a.trim();
+  }
+  return "";
 }

@@ -4,37 +4,73 @@ import { chat } from "./model-service";
 import { fieldsFor, METHOD_TEMPLATES } from "../shared/templates";
 import type { LiteratureItem } from "../shared/literature";
 
-/** 从模型输出中容错提取 JSON（支持代码块包裹、前后缀说明文字与截断容错） */
+/** 从模型输出中容错提取 JSON（支持代码块包裹、前后缀说明文字、尾逗号与截断容错） */
 export function extractJson(text: string): unknown | null {
-  const cleaned = text.replace(/`{3}(?:json)?/gi, "").trim();
-  try { return JSON.parse(cleaned); } catch { /* 继续尝试提取 */ }
-  const pairs: Array<[string, string]> = [["[", "]"], ["{", "}"]];
-  for (const [open, close] of pairs) {
-    const start = cleaned.indexOf(open);
-    if (start < 0) continue;
-    let depth = 0;
-    let inStr = false;
-    let esc = false;
-    for (let i = start; i < cleaned.length; i++) {
-      const ch = cleaned[i];
-      if (inStr) {
-        if (esc) esc = false;
-        else if (ch === "\\") esc = true;
-        else if (ch === "\"") inStr = false;
-        continue;
+  let cleaned = text.replace(/`{3}(?:json)?/gi, "").trim();
+  // 去掉 JSON 外的说明性文字时保留最后一个完整 JSON 块
+  const candidates: string[] = [];
+  for (const raw of [cleaned, cleaned.replace(/,\s*([}\]])/g, "$1")]) {
+    if (raw) candidates.push(raw);
+  }
+  for (const c of candidates) {
+    try { return JSON.parse(c); } catch { /* 继续 */ }
+    // 整体可能是被引号包裹的 JSON 字符串
+    if (c.startsWith("\"") && c.endsWith("\"")) {
+      try { return JSON.parse(JSON.parse(c)); } catch { /* 继续 */ }
+    }
+    // 剥壳解析：取第一个 { 到最后一个 } 之间的内容并去除尾逗号（处理「说明文字+完整 JSON+说明文字」）
+    {
+      const first = c.indexOf("{");
+      const last = c.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try { return JSON.parse(c.slice(first, last + 1).replace(/,\s*([}\]])/g, "$1")); } catch { /* 继续 */ }
       }
-      if (ch === "\"") inStr = true;
-      else if (ch === open) depth++;
-      else if (ch === close) {
-        depth--;
-        if (depth === 0) {
-          try { return JSON.parse(cleaned.slice(start, i + 1)); } catch { return null; }
+    }
+    // 截断容错：文本不以 } ] 结尾且含 [ 时，按「已完成对象列表」解析
+    // （推理型模型可能因 max_tokens 被截断在数组中间）。
+    if (c.includes("[") && !/[}\]]\s*$/.test(c)) {
+      const list = parseObjectList(c);
+      if (list && list.length > 0) return list;
+    }
+    // 取最后一个 {…} 或 […] 平衡块（模型常在 JSON 前后加解释文字）
+    for (const [open, close] of [["{", "}"], ["[", "]"]] as Array<[string, string]>) {
+      let start = c.lastIndexOf(open);
+      while (start >= 0) {
+        let depth = 0;
+        let inStr = false;
+        let esc = false;
+        let found = false;
+        for (let i = start; i < c.length; i++) {
+          const ch = c[i];
+          if (inStr) {
+            if (esc) esc = false;
+            else if (ch === "\\") esc = true;
+            else if (ch === "\"") inStr = false;
+            continue;
+          }
+          if (ch === "\"") inStr = true;
+          else if (ch === open) depth++;
+          else if (ch === close) {
+            depth--;
+            if (depth === 0) {
+              try { return JSON.parse(c.slice(start, i + 1)); } catch { /* 这个块不行，换更早的 */ }
+              found = true;
+              break;
+            }
+          }
         }
+        void found;
+        const nextFrom = start - 1;
+        start = nextFrom < 0 ? -1 : c.lastIndexOf(open, nextFrom);
       }
     }
   }
-  // 截断容错：推理型模型可能因 max_tokens 被截断在数组中间；
-  // 逐个解析已完成的 {…} 对象，丢弃未完成的尾元素。
+  // 截断容错：文本不以 } ] 结尾且含 [ 时，优先按「已完成对象列表」解析
+  // （推理型模型可能因 max_tokens 被截断在数组中间）。
+  if (cleaned.includes("[") && !/[}\]]\s*$/.test(cleaned)) {
+    const list = parseObjectList(cleaned);
+    if (list && list.length > 0) return list;
+  }
   return parseObjectList(cleaned);
 }
 

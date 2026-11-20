@@ -32,22 +32,20 @@ function startMockModel(): { server: Server; base: string } {
         const marker = "需要生成建议的字段：";
         const targetPart = user.includes(marker) ? user.slice(user.indexOf(marker) + marker.length) : user;
         if (targetPart.includes("variables")) {
-          out = {
-            fields: [
-              { key: "variables", content: VARIABLES_JSON, note: "变量划分建议，可按需增删" },
-              { key: "candidates", content: "直播互动性是否通过消费者信任影响购买意愿？", note: "候选问题示例" },
-            ],
-            advice: "整体建议：先确定变量关系，再细化研究问题。",
-          };
-        } else if (targetPart.includes("hypotheses")) {
-          out = {
-            fields: [
-              { key: "research_question", content: "直播互动性如何通过消费者信任影响购买意愿？（AI 草稿，待复核）", note: "基于变量关系" },
-              { key: "constructs", content: "互动性、消费者信任、购买意愿（构念定义待核验）", note: "" },
-              { key: "hypotheses", content: JSON.stringify([{ number: "H1", statement: "互动性正向影响购买意愿", iv: "互动性", dv: "购买意愿", basis: "理论推导，待核验" }]), note: "假设卡片" },
-            ],
-            advice: "整体建议：H1 可直接采用。",
-          };
+          // 故意返回「脏 JSON」：代码块包裹 + 尾逗号 + JSON 前后附文字，验证解析容错
+          const fence = String.fromCharCode(96);
+          out = "这里是为您生成的建议：\n" + fence + fence + fence + "json\n" + '{"fields":[{"key":"variables","content":' + JSON.stringify(VARIABLES_JSON) + ',"note":"变量划分建议，可按需增删",},{"key":"candidates","content":"直播互动性是否通过消费者信任影响购买意愿？","note":"候选问题示例",}],"advice":"整体建议：先确定变量关系，再细化研究问题。",}' + "\n" + fence + fence + fence + "\n以上建议仅供参考。";
+        } else {
+          // 通用分支：按目标键逐个生成字段（覆盖分块后的任意组合）
+          const keys = targetPart.split("；").map((s) => s.split("（")[0].trim()).filter(Boolean);
+          const fields: Array<Record<string, string>> = [];
+          for (const key of keys) {
+            if (key === "research_question") fields.push({ key, content: "直播互动性如何通过消费者信任影响购买意愿？（AI 草稿，待复核）", note: "基于变量关系" });
+            else if (key === "constructs") fields.push({ key, content: "互动性、消费者信任、购买意愿（构念定义待核验）", note: "" });
+            else if (key === "hypotheses") fields.push({ key, content: JSON.stringify([{ number: "H1", statement: "互动性正向影响购买意愿", iv: "互动性", dv: "购买意愿", basis: "理论推导，待核验" }]), note: "假设卡片" });
+            else fields.push({ key, content: "建议内容：" + key + "（AI 草稿，待复核）", note: "示例说明" });
+          }
+          out = { fields, advice: "整体建议：H1 可直接采用。" };
         }
       }
       // 对话回复
