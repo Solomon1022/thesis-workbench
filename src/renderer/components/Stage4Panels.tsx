@@ -170,15 +170,16 @@ export function VersionSection({ projectId, stageKey, buildContent, onRestore }:
   buildContent: () => string;
   onRestore: (contentJson: string, warning: string) => void;
 }) {
-  const [versions, setVersions] = useState<Array<{ id: number; versionNo: number; note: string; createdAt: number }>>([]);
+  const [versions, setVersions] = useState<Array<{ id: number; versionNo: number; note: string; name: string; createdAt: number }>>([]);
   const [note, setNote] = useState("");
+  const [name, setName] = useState("");
   const [message, setMessage] = useState("");
 
   const refresh = useCallback(async () => {
     const a = api();
     if (!a) return;
     const list = await a.stage4ListVersions(projectId, stageKey);
-    setVersions(list.map((v) => ({ id: v.id, versionNo: v.versionNo, note: v.note, createdAt: v.createdAt })));
+    setVersions(list.map((v) => ({ id: v.id, versionNo: v.versionNo, note: v.note, name: v.name ?? "", createdAt: v.createdAt })));
   }, [projectId, stageKey]);
 
   useEffect(() => { void refresh(); }, [refresh]);
@@ -186,9 +187,20 @@ export function VersionSection({ projectId, stageKey, buildContent, onRestore }:
   const save = async () => {
     const a = api();
     if (!a) return;
-    await a.stage4SaveVersion(projectId, stageKey, buildContent(), note.trim());
+    await a.stage4SaveVersion(projectId, stageKey, buildContent(), note.trim(), name.trim());
     setNote("");
+    setName("");
     setMessage("版本已保存");
+    void refresh();
+  };
+
+  const rename = async (id: number, currentName: string) => {
+    const a = api();
+    if (!a) return;
+    const newName = window.prompt("给这个版本起个名字：", currentName);
+    if (newName === null) return;
+    await a.stage4RenameVersion(id, newName.trim());
+    setMessage("版本名称已更新");
     void refresh();
   };
 
@@ -207,6 +219,7 @@ export function VersionSection({ projectId, stageKey, buildContent, onRestore }:
       <h2 className="card-title">版本管理</h2>
       <p className="muted">关键产物（研究设计 / 开题）可保存版本快照；恢复旧版本会提示下游内容需人工复核，不会自动覆盖或删除旧版本。</p>
       <div className="lit-search-row">
+        <input className="input" aria-label="版本名称" placeholder="自定义版本名（如：开题定稿 / AI 初稿，可选）" value={name} onChange={(e) => setName(e.target.value)} />
         <input className="input" aria-label="版本备注" placeholder="版本备注（如：初稿 / 修改变量后）" value={note} onChange={(e) => setNote(e.target.value)} />
         <button className="btn btn-primary" onClick={() => void save()}>保存版本</button>
       </div>
@@ -216,10 +229,11 @@ export function VersionSection({ projectId, stageKey, buildContent, onRestore }:
           {versions.map((v) => (
             <div key={v.id} className="lit-item">
               <div className="lit-item-main">
-                <div className="lit-title">v{v.versionNo} <span className="muted">· {new Date(v.createdAt).toLocaleString("zh-CN")}</span></div>
+                <div className="lit-title">{v.name ? v.name + " " : ""}v{v.versionNo} <span className="muted">· {new Date(v.createdAt).toLocaleString("zh-CN")}</span></div>
                 <div className="muted">{v.note || "无备注"}</div>
               </div>
               <div className="lit-item-actions">
+                <button className="btn btn-sm" onClick={() => void rename(v.id, v.name)}>改名</button>
                 <button className="btn btn-sm" onClick={() => void restore(v.id)}>恢复此版本</button>
               </div>
             </div>

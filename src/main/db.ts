@@ -281,8 +281,16 @@ export class ThesisDB {
       );
     `);
     this.migrateChannels();
+    this.migrateVersionName();
   }
 
+
+  /** stage_versions 增加自定义名称列（老库自动补列）。 */
+  private migrateVersionName(): void {
+    try {
+      this.db.exec("ALTER TABLE stage_versions ADD COLUMN name TEXT NOT NULL DEFAULT ''");
+    } catch { /* 列已存在 */ }
+  }
 
   /** 旧单线路 model_profiles/role_assignments 数据迁移到多线路结构（只做一次）。 */
   private migrateChannels(): void {
@@ -627,22 +635,27 @@ export class ThesisDB {
     return Number(row?.m ?? 0) + 1;
   }
 
-  saveStageVersion(projectId: string, stageKey: string, contentJson: string, note: string): number {
+  saveStageVersion(projectId: string, stageKey: string, contentJson: string, note: string, name = ""): number {
     const no = this.nextStageVersionNo(projectId, stageKey);
-    this.db.prepare("INSERT INTO stage_versions (project_id, stage_key, version_no, content_json, note, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(projectId, stageKey, no, contentJson, note, Date.now());
+    this.db.prepare("INSERT INTO stage_versions (project_id, stage_key, version_no, content_json, note, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(projectId, stageKey, no, contentJson, note, name, Date.now());
     return no;
   }
 
-  listStageVersions(projectId: string, stageKey: string): Array<{ id: number; versionNo: number; contentJson: string; note: string; createdAt: number }> {
+  listStageVersions(projectId: string, stageKey: string): Array<{ id: number; versionNo: number; contentJson: string; note: string; name: string; createdAt: number }> {
     const rows = this.db.prepare("SELECT * FROM stage_versions WHERE project_id = ? AND stage_key = ? ORDER BY version_no DESC").all(projectId, stageKey) as unknown as Row[];
     return rows.map((r) => ({
       id: Number(r.id),
       versionNo: Number(r.version_no),
       contentJson: String(r.content_json ?? "{}"),
       note: String(r.note ?? ""),
+      name: String(r.name ?? ""),
       createdAt: Number(r.created_at),
     }));
+  }
+
+  renameStageVersion(id: number, name: string): void {
+    this.db.prepare("UPDATE stage_versions SET name = ? WHERE id = ?").run(name, Number(id));
   }
 
 

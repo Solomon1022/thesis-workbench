@@ -176,9 +176,10 @@ test("阶段 4：全局 AI 助手（建议+对话）→ 变量 → 假设 → �
     await page.locator(".ai-suggest-item").filter({ hasText: "研究问题" }).getByRole("button", { name: "填入此内容" }).click();
     await expect(page.getByLabel("研究问题")).toHaveValue(/直播互动性如何通过消费者信任影响购买意愿/);
     await page.locator(".ai-suggest-item").filter({ hasText: "研究假设卡片" }).getByRole("button", { name: "填入此内容" }).click();
-    await expect(page.getByLabel("假设陈述").first()).toHaveValue("互动性正向影响购买意愿");
-    await page.getByRole("button", { name: "保存假设卡片" }).click();
-    await page.getByLabel("版本备注").fill("AI 初稿");
+    const hypoCount = await page.evaluate(async () => (await window.thesisWorkbench.stage4ListHypotheses((await window.thesisWorkbench.listProjects())[0].id)).length);
+    expect(hypoCount).toBeGreaterThan(0);
+    await page.getByLabel("版本名称").fill("AI 初稿");
+    await page.getByLabel("版本备注").fill("设计初版");
     await page.getByRole("button", { name: "保存版本" }).click();
     await expect(page.getByText("版本已保存")).toBeVisible();
     await expect(page.getByText(/v1/).first()).toBeVisible();
@@ -205,8 +206,12 @@ test("阶段 4：全局 AI 助手（建议+对话）→ 变量 → 假设 → �
     await expect(page2.getByLabel("自变量（IV）变量1")).toHaveValue("直播互动性");
     await expect(page2.getByLabel("候选研究问题")).toHaveValue("直播互动性是否通过消费者信任影响购买意愿？");
     await page2.getByRole("button", { name: /研究问题与设计/ }).click();
-    await expect(page2.getByLabel("假设陈述").first()).toHaveValue("互动性正向影响购买意愿");
-    await expect(page2.getByText(/v1/).first()).toBeVisible();
+    const hypoRestored = await page2.evaluate(async () => {
+      const hs = await window.thesisWorkbench.stage4ListHypotheses((await window.thesisWorkbench.listProjects())[0].id);
+      return hs.map((h) => h.statement);
+    });
+    expect(hypoRestored).toContain("互动性正向影响购买意愿");
+    await expect(page2.getByText(/AI 初稿 v1/).first()).toBeVisible();
     await page2.getByRole("button", { name: "恢复此版本" }).click();
     await expect(page2.getByText(/已恢复版本 v1/).first()).toBeVisible();
     await expect(page2.getByLabel("研究问题")).toHaveValue(/直播互动性如何通过消费者信任影响购买意愿/);

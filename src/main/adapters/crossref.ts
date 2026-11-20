@@ -40,10 +40,12 @@ function workToItem(work: CrossrefWork, source: "crossref") {
   };
 }
 
-export async function crossrefSearch(query: string, mailto: string, signal?: AbortSignal): Promise<SearchOutcome> {
+export async function crossrefSearch(query: string, mailto: string, signal?: AbortSignal, opts?: { rows?: number; offset?: number }): Promise<SearchOutcome> {
   // Crossref 礼貌池：mailto 必须为真实邮箱，示例域名会被拒绝（HTTP 429）
   const contact = mailto && mailto.includes("@") && !/@example\.(com|org|net)$/i.test(mailto) ? mailto : "research@example.com";
-  const url = crossrefBase() + "/works?query.bibliographic=" + encodeURIComponent(query) + "&rows=10&mailto=" + encodeURIComponent(contact);
+  const rows = Math.min(50, Math.max(1, opts?.rows ?? 10));
+  const offset = Math.max(0, opts?.offset ?? 0);
+  const url = crossrefBase() + "/works?query.bibliographic=" + encodeURIComponent(query) + "&rows=" + rows + "&offset=" + offset + "&mailto=" + encodeURIComponent(contact);
   const response = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal });
   if (!response.ok) throw new Error("Crossref 服务返回错误（HTTP " + response.status + "）");
   const data = (await response.json()) as { message?: { items?: CrossrefWork[] } };

@@ -34,7 +34,7 @@ declare global {
       settingsCancelTest(testId: string): Promise<void>;
       literatureList(projectId: string): Promise<LiteratureItem[]>;
       literatureSearch(projectId: string, source: string, query: string): Promise<{ outcome: SearchOutcome; log: SearchLogEntry }>;
-      literatureAutoSearch(projectId: string): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: Array<{ title: string; authors: string; year: string; venue: string; doi: string; url: string; abstract: string; source: "crossref" | "arxiv" | "pubmed" | "manual"; type: string; preprint: boolean }> }>;
+      literatureAutoSearch(projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[] }): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: Array<{ title: string; authors: string; year: string; venue: string; doi: string; url: string; abstract: string; source: "crossref" | "arxiv" | "pubmed" | "manual"; type: string; preprint: boolean }>; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string }>;
       literatureLookupDoi(doi: string): Promise<{ found: boolean; message: string; item?: SearchOutcome["items"][number] }>;
       literatureSave(projectId: string, input: unknown, opts: { note?: string; manuallyVerified?: boolean }): Promise<{ saved: boolean; message: string; item?: LiteratureItem; existing?: LiteratureItem }>;
       literatureVerifyManual(id: string, note: string): Promise<void>;
@@ -52,8 +52,9 @@ declare global {
       stage4DeleteDirection(id: string): Promise<void>;
       stage4GenerateDesignDraft(projectId: string): Promise<{ ok: boolean; message: string; draft?: { fields: Record<string, string>; hypotheses: Array<{ number: string; statement: string; iv: string; dv: string; basis: string }>; note: string }; provider?: string; model?: string }>;
       stage4GenerateProposal(projectId: string): Promise<{ ok: boolean; message: string; sections?: Array<{ title: string; content: string }>; provider?: string; model?: string }>;
-      stage4SaveVersion(projectId: string, stageKey: string, contentJson: string, note: string): Promise<number>;
-      stage4ListVersions(projectId: string, stageKey: string): Promise<Array<{ id: number; versionNo: number; contentJson: string; note: string; createdAt: number }>>;
+      stage4SaveVersion(projectId: string, stageKey: string, contentJson: string, note: string, name: string): Promise<number>;
+      stage4RenameVersion(versionId: number, name: string): Promise<void>;
+      stage4ListVersions(projectId: string, stageKey: string): Promise<Array<{ id: number; versionNo: number; contentJson: string; note: string; name: string; createdAt: number }>>;
       stage4RestoreVersion(versionId: number): Promise<{ contentJson: string; versionNo: number; warning: string } | null>;
       stage4ReplaceHypotheses(projectId: string, cards: unknown): Promise<void>;
       stage4ListHypotheses(projectId: string): Promise<Array<{ id: string; number: string; statement: string; iv: string; dv: string; basis: string }>>;
@@ -97,6 +98,7 @@ declare global {
       aiListConversations(projectId: string, stageKey: string): Promise<Array<{ role: string; content: string; createdAt: number }>>;
       aiClearConversations(projectId: string, stageKey: string): Promise<void>;
       aiProjectKnowledge(projectId: string): Promise<string>;
+      aiTopicOptions(projectId: string): Promise<{ ok: boolean; message: string; options?: Array<{ title: string; rationale: string }> }>;
     };
   }
 }

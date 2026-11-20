@@ -25,6 +25,7 @@ test("第 0 项可编辑 + 项目知识汇总 + 设置三块布局", async () =>
     await page.getByRole("button", { name: /建立项目与要求/ }).click();
     await expect(page.getByText("项目信息（新建项目时填写的内容，这里可以随时修改）")).toBeVisible();
     await expect(page.getByLabel("项目名称")).toHaveValue("第0项测试");
+    await expect(page.getByRole("button", { name: "生成 3 个选题方向" })).toBeVisible();
     // 修改研究方法 + 截止日期 + 学科
     await page.getByLabel("研究方法").selectOption("ai-algorithm");
     await page.getByLabel("截止日期").fill("2027-06-30");

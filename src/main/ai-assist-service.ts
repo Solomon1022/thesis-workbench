@@ -144,7 +144,9 @@ export class AiAssistService {
     const suggestions: FieldSuggestion[] = rawFields.map((f) => {
       const r = (f ?? {}) as { key?: unknown; content?: unknown; note?: unknown };
       const key = String(r.key ?? "");
-      return { key, label: targets.find((t) => t.key === key)?.label ?? key, content: String(r.content ?? "").trim(), note: String(r.note ?? "").trim() };
+      // content 可能是字符串或结构化对象（如 hypotheses 数组）：统一为可显示、可填入的文本
+      const content = typeof r.content === "string" ? r.content : r.content == null ? "" : JSON.stringify(r.content);
+      return { key, label: targets.find((t) => t.key === key)?.label ?? key, content: content.trim(), note: String(r.note ?? "").trim() };
     }).filter((s) => validKeys.has(s.key) && s.content.length > 0);
     const advice = typeof parsed?.advice === "string" ? parsed.advice : "";
     if (suggestions.length === 0 && !advice) {
@@ -180,6 +182,39 @@ export class AiAssistService {
     const reply = raw.trim();
     this.db.appendConversation(projectId, stageKey, "assistant", reply);
     return { ok: true, message: "", reply };
+  }
+
+  /** 第 0 项：根据项目信息（专业/学历/方法/已有材料）生成 3 个选题方向，用户自行选择采用。 */
+  async topicOptions(projectId: string): Promise<{ ok: boolean; message: string; options?: Array<{ title: string; rationale: string }> }> {
+    const role = this.roleFor("establish");
+    const p = this.db.getProjectDetail(projectId).project;
+    const materials = (p.materials ?? {}) as unknown as Record<string, string>;
+    const materialText = Object.entries(materials).filter(([, v]) => String(v ?? "").trim()).map(([k, v]) => k + "：" + String(v).slice(0, 120)).join("；") || "无";
+    const system = [
+      "你是论文选题助手。根据学生提供的个人信息生成 3 个可开展的论文选题方向。",
+      "只输出 JSON，不要任何解释：",
+      '{"options":[{"title":"选题方向（一句话）","rationale":"推荐理由（一句话）"}],"advice":"整体建议"}',
+      "选题要结合学科与研究方法、本科/硕士/博士论文的可行范围；禁止编造文献、数据与指导教师信息。",
+    ].join("\n");
+    const user = "学生信息：\n- 学科：" + p.disciplines.join("、") + "\n- 学历：" + p.educationLevel + "\n- 研究方法偏好：" + p.researchMethod + "\n- 已有材料：" + materialText;
+    const raw = await chat({
+      channel: role.channel,
+      apiKey: role.apiKey,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      maxTokens: 4000,
+      temperature: 0.6,
+      signal: AbortSignal.timeout(240_000),
+    });
+    const parsed = extractJson(raw) as { options?: unknown } | null;
+    const options = (Array.isArray(parsed?.options) ? parsed.options : []).map((o) => {
+      const r = (o ?? {}) as { title?: unknown; rationale?: unknown };
+      return { title: String(r.title ?? "").trim(), rationale: String(r.rationale ?? "").trim() };
+    }).filter((o) => o.title).slice(0, 3);
+    if (options.length === 0) return { ok: false, message: "模型未返回选题方向（未生成任何内容）" };
+    return { ok: true, message: "已生成 " + options.length + " 个选题方向（AI 建议，请结合自身情况选择）", options };
   }
 
   listConversations(projectId: string, stageKey: string) {

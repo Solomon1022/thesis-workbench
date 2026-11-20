@@ -46,7 +46,7 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   // 文献库（真实学术数据源）
   ipcMain.handle("literature:list", (_e, projectId: string) => db.listLiterature(projectId));
   ipcMain.handle("literature:search", (_e, projectId: string, source: string, query: string) => literature.search(projectId, source, query));
-  ipcMain.handle("literature:autoSearch", (_e, projectId: string) => literature.autoSearch(projectId));
+  ipcMain.handle("literature:autoSearch", (_e, projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[] }) => literature.autoSearch(projectId, opts));
   ipcMain.handle("literature:lookupDoi", (_e, doi: string) => literature.lookupDoi(doi));
   ipcMain.handle("literature:save", (_e, projectId: string, input: LiteratureInput, opts: { note?: string; manuallyVerified?: boolean }) => literature.saveItem(projectId, input, opts ?? {}));
   ipcMain.handle("literature:verifyManual", (_e, id: string, note: string) => literature.verifyManual(id, note));
@@ -65,7 +65,8 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("stage4:deleteDirection", (_e, id: string) => stage4.deleteDirection(id));
   ipcMain.handle("stage4:generateDesignDraft", (_e, projectId: string) => stage4.generateDesignDraft(projectId));
   ipcMain.handle("stage4:generateProposal", (_e, projectId: string) => stage4.generateProposal(projectId));
-  ipcMain.handle("stage4:saveVersion", (_e, projectId: string, stageKey: string, contentJson: string, note: string) => stage4.saveVersion(projectId, stageKey, contentJson, note));
+  ipcMain.handle("stage4:saveVersion", (_e, projectId: string, stageKey: string, contentJson: string, note: string, name: string) => stage4.saveVersion(projectId, stageKey, contentJson, note, name));
+  ipcMain.handle("stage4:renameVersion", (_e, versionId: number, name: string) => stage4.renameVersion(versionId, name));
   ipcMain.handle("stage4:listVersions", (_e, projectId: string, stageKey: string) => stage4.listVersions(projectId, stageKey));
   ipcMain.handle("stage4:restoreVersion", (_e, versionId: number) => stage4.restoreVersion(versionId));
   ipcMain.handle("stage4:replaceHypotheses", (_e, projectId: string, cards: unknown) => stage4.replaceHypotheses(projectId, cards as Parameters<Stage4Service["replaceHypotheses"]>[1]));
@@ -115,6 +116,7 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("ai:listConversations", (_e, projectId: string, stageKey: string) => aiAssist.listConversations(projectId, stageKey));
   ipcMain.handle("ai:clearConversations", (_e, projectId: string, stageKey: string) => aiAssist.clearConversations(projectId, stageKey));
   ipcMain.handle("ai:projectKnowledge", (_e, projectId: string) => aiAssist.buildProjectKnowledge(projectId));
+  ipcMain.handle("ai:topicOptions", (_e, projectId: string) => aiAssist.topicOptions(projectId));
 
   // 打开外部链接（仅 http/https）
   ipcMain.handle("shell:openExternal", (_e, url: string) => {

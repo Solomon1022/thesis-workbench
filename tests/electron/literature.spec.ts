@@ -132,10 +132,9 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await expect(page.locator(".lit-item").filter({ hasText: "Diffusion Models Beat GANs" }).getByText("预印本", { exact: true })).toBeVisible();
 
     // 4) 手动录入（待核验）→ 人工核验（已核验）
-    await page.getByLabel("手动标题").fill("手动录入的文献");
-    await page.getByLabel("手动作者").fill("张三");
+    await page.getByLabel("参考文献引用").fill("张三, 李四. 手动录入的文献研究[J]. 测试期刊, 2020, 1(1): 1-10.");
     await page.getByRole("button", { name: "保存记录" }).click();
-    const manualItem = page.locator(".lit-item").filter({ hasText: "手动录入的文献" });
+    const manualItem = page.locator(".lit-item").filter({ hasText: "手动录入的文献研究" });
     await expect(manualItem.getByText("待核验", { exact: true })).toBeVisible();
     await manualItem.getByRole("button", { name: "人工核验" }).click();
     await expect(manualItem.getByText("已核验", { exact: true })).toBeVisible();
@@ -160,8 +159,8 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.getByLabel("检索式").fill("anything");
     await page.getByRole("button", { name: "检索", exact: true }).click();
     await expect(page.getByText(/检索失败：Crossref 服务返回错误/).first()).toBeVisible();
-    await page.locator("details.lit-log summary").click();
-    await expect(page.locator("details.lit-log")).toContainText("失败");
+    await page.locator("details.lit-log").filter({ hasText: "检索记录" }).locator("summary").click();
+    await expect(page.locator("details.lit-log").filter({ hasText: "检索记录" })).toContainText("失败");
   } finally {
     await app.close();
   }

@@ -30,7 +30,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const [error, setError] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [outcomeMeta, setOutcomeMeta] = useState<{ source: string; query: string; status: string; message: string; time: string } | null>(null);
-  const [manual, setManual] = useState({ title: "", authors: "", year: "", venue: "", doi: "", url: "", abstract: "", note: "" });
+  const [manual, setManual] = useState({ citation: "", abstract: "", note: "" });
   const [manualVerify, setManualVerify] = useState(false);
   const [importText, setImportText] = useState("");
   const [importPreview, setImportPreview] = useState<ParsedReference[]>([]);
@@ -39,8 +39,11 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const [claim, setClaim] = useState("");
   const [location, setLocation] = useState("");
   const [showCN, setShowCN] = useState(false);
-  const [autoState, setAutoState] = useState<{ ok: boolean; message: string; queryUsed: string[]; results: Candidate[] } | null>(null);
+  const [autoState, setAutoState] = useState<{ ok: boolean; message: string; queryUsed: string[]; results: Candidate[]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string } | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
+  const [autoTotal, setAutoTotal] = useState(15);
+  const [autoCn, setAutoCn] = useState(0);
+  const [autoHistory, setAutoHistory] = useState<Array<{ at: string; queryUsed: string[]; results: Candidate[]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number } }>>([]);
 
   const refresh = useCallback(async () => {
     const a = api();
@@ -112,15 +115,20 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     setAutoBusy(true);
     setError("");
     try {
-      const r = await a.literatureAutoSearch(projectId);
+      const excludeDois = [
+        ...items.map((i) => i.doi).filter(Boolean),
+        ...autoHistory.flatMap((h) => h.results.map((c) => c.doi).filter(Boolean)),
+      ];
+      const r = await a.literatureAutoSearch(projectId, { total: autoTotal, cn: autoCn, en: Math.max(0, autoTotal - autoCn), excludeDois });
       setAutoState(r);
       if (r.ok) {
         setCandidates(r.results);
+        setAutoHistory((prev) => [{ at: new Date().toLocaleString("zh-CN"), queryUsed: r.queryUsed, results: r.results, counts: r.counts }, ...prev].slice(0, 5));
         setOutcomeMeta({ source: "Crossref（一键自动检索）", query: r.queryUsed.join(" / "), status: "ok", message: r.message, time: new Date().toLocaleTimeString("zh-CN", { hour12: false }) });
-        setMessage(r.message);
+        setMessage(r.message + (r.cnNote ? "。注意：" + r.cnNote : ""));
         void refresh();
       } else {
-        setError(r.message);
+        setError(r.message + (r.cnNote ? "。注意：" + r.cnNote : ""));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -140,15 +148,25 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const saveManual = async () => {
     const a = api();
     if (!a) return;
-    if (!manual.title.trim() && !manual.doi.trim()) { setError("请至少填写标题或 DOI"); return; }
+    const citation = manual.citation.trim();
+    if (!citation) { setError("请填写完整的参考文献引用"); return; }
     setBusy(true);
     try {
+      const doiMatch = citation.match(/10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i);
+      const yearMatch = citation.match(/(?:19|20)\d{2}/);
       const r = await a.literatureSave(projectId, {
-        title: manual.title.trim(), authors: manual.authors.trim(), year: manual.year.trim(), venue: manual.venue.trim(),
-        doi: manual.doi.trim(), url: manual.url.trim(), abstract: manual.abstract.trim(), source: "manual", preprint: false,
+        title: citation,
+        authors: "",
+        year: yearMatch ? yearMatch[0] : "",
+        venue: "",
+        doi: doiMatch ? doiMatch[0] : "",
+        url: "",
+        abstract: manual.abstract.trim(),
+        source: "manual",
+        preprint: false,
       }, { manuallyVerified: manualVerify, note: manual.note.trim() });
       setMessage(r.message);
-      if (r.saved) { setManual({ title: "", authors: "", year: "", venue: "", doi: "", url: "", abstract: "", note: "" }); setManualVerify(false); void refresh(); }
+      if (r.saved) { setManual({ citation: "", abstract: "", note: "" }); setManualVerify(false); void refresh(); }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -248,8 +266,29 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
           <h3 className="ai-title">一键自动找文献（基于已确定的选题、变量与摘要）</h3>
           <button className="btn btn-primary" disabled={autoBusy} onClick={() => void runAutoSearch()}>{autoBusy ? "检索中…" : "自动找文献（含地址）"}</button>
         </div>
-        <p className="muted">根据「前期检索与选题」「研究问题与设计」里已填的方向、变量与摘要自动推导检索式，直接检索真实 Crossref 数据源；每条文献的地址在下方结果中直接给出，可一键保存入库。</p>
+        <p className="muted">根据「前期检索与选题」「研究问题与设计」里已填的方向、变量与摘要自动推导检索式，直接检索真实 Crossref 数据源；每条文献的地址直接给出，可一键保存入库。再次检索会自动排除已保存与历史推荐的文献，得到不同的结果。</p>
+        <div className="lit-search-row">
+          <label className="row-label">总数</label>
+          <input className="input input-num" aria-label="自动检索总数" type="number" min={1} max={30} value={autoTotal} onChange={(e) => setAutoTotal(Math.max(1, Math.min(30, Number(e.target.value) || 15)))} />
+          <label className="row-label">国内篇数</label>
+          <input className="input input-num" aria-label="国内篇数" type="number" min={0} max={autoTotal} value={autoCn} onChange={(e) => setAutoCn(Math.max(0, Math.min(autoTotal, Number(e.target.value) || 0)))} />
+          <span className="muted">国外自动为 {Math.max(0, autoTotal - autoCn)} 篇</span>
+        </div>
         {autoState && autoState.ok && <p className="muted">本次检索式：{autoState.queryUsed.join("；")}</p>}
+        {autoHistory.length > 0 && (
+          <details className="lit-log">
+            <summary>历史推荐（折叠，共 {autoHistory.length} 批）</summary>
+            {autoHistory.map((h, i) => (
+              <div key={i} className="auto-history-batch">
+                <div className="muted">{h.at} · 检索式：{h.queryUsed.join("；")}{h.counts ? " · 国内 " + h.counts.cnFound + "/" + h.counts.cnRequested + "，国外 " + h.counts.enFound + "/" + h.counts.enRequested : ""}</div>
+                <ul className="auto-history-list">
+                  {h.results.slice(0, 8).map((c) => <li key={c.doi || c.title}>{c.title}（{c.year}）</li>)}
+                  {h.results.length > 8 && <li className="muted">…共 {h.results.length} 条</li>}
+                </ul>
+              </div>
+            ))}
+          </details>
+        )}
       </section>
       <section className="card">
         <h2 className="card-title">检索与核验（真实学术数据源）</h2>
@@ -302,17 +341,10 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
       </section>
 
       <section className="card">
-        <h2 className="card-title">手动录入</h2>
-        <p className="muted">手动录入默认标记为「待核验」；勾选人工核验后标记为「已核验」并记录说明。无 DOI 的记录允许人工核验。</p>
-        <div className="form-grid">
-          <div className="field"><label>标题</label><input className="input" aria-label="手动标题" value={manual.title} onChange={(e) => setManual((m) => ({ ...m, title: e.target.value }))} /></div>
-          <div className="field"><label>作者</label><input className="input" aria-label="手动作者" value={manual.authors} onChange={(e) => setManual((m) => ({ ...m, authors: e.target.value }))} /></div>
-          <div className="field"><label>年份</label><input className="input" aria-label="手动年份" value={manual.year} onChange={(e) => setManual((m) => ({ ...m, year: e.target.value }))} /></div>
-          <div className="field"><label>期刊 / 来源</label><input className="input" aria-label="手动期刊" value={manual.venue} onChange={(e) => setManual((m) => ({ ...m, venue: e.target.value }))} /></div>
-          <div className="field"><label>DOI</label><input className="input" aria-label="手动DOI" value={manual.doi} onChange={(e) => setManual((m) => ({ ...m, doi: e.target.value }))} /></div>
-          <div className="field"><label>链接</label><input className="input" aria-label="手动链接" value={manual.url} onChange={(e) => setManual((m) => ({ ...m, url: e.target.value }))} /></div>
-        </div>
-        <div className="field"><label>摘要</label><textarea className="textarea" aria-label="手动摘要" value={manual.abstract} onChange={(e) => setManual((m) => ({ ...m, abstract: e.target.value }))} /></div>
+        <h2 className="card-title">手动录入（参考文献引用 + 摘要）</h2>
+        <p className="muted">直接粘贴完整参考文献引用（作者、标题、年份、期刊等都包含在里面即可），再补充摘要。手动录入默认标记为「待核验」；勾选人工核验后标记为「已核验」。DOI 与年份会自动从引文中识别。</p>
+        <div className="field"><label>参考文献引用</label><textarea className="textarea" aria-label="参考文献引用" placeholder="如：王翠翠, 徐静, 尚倩. 电商直播中虚拟主播互动性对消费者购买行为的影响[J]. 经济与管理, 2023, 37(2): 84-92." value={manual.citation} onChange={(e) => setManual((m) => ({ ...m, citation: e.target.value }))} /></div>
+        <div className="field"><label>摘要</label><textarea className="textarea" aria-label="手动摘要" placeholder="该文献的研究内容摘要（选填）" value={manual.abstract} onChange={(e) => setManual((m) => ({ ...m, abstract: e.target.value }))} /></div>
         <label className="check-row"><input type="checkbox" checked={manualVerify} onChange={(e) => setManualVerify(e.target.checked)} />人工核验（我已在官方来源确认该题录信息）</label>
         <div className="field"><label>核验 / 备注说明</label><input className="input" aria-label="核验说明" placeholder="如：已在知网官网确认 / 检索式与时间" value={manual.note} onChange={(e) => setManual((m) => ({ ...m, note: e.target.value }))} /></div>
         <div className="lit-actions">

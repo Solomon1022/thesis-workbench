@@ -28,8 +28,8 @@ const api = {
   literatureList: (projectId: string): Promise<LiteratureItem[]> => ipcRenderer.invoke("literature:list", projectId),
   literatureSearch: (projectId: string, source: string, query: string): Promise<{ outcome: SearchOutcome; log: SearchLogEntry }> =>
     ipcRenderer.invoke("literature:search", projectId, source, query),
-  literatureAutoSearch: (projectId: string): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: SearchOutcome["items"] }> =>
-    ipcRenderer.invoke("literature:autoSearch", projectId),
+  literatureAutoSearch: (projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[] }): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: SearchOutcome["items"]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string }> =>
+    ipcRenderer.invoke("literature:autoSearch", projectId, opts),
   literatureLookupDoi: (doi: string): Promise<{ found: boolean; message: string; item?: SearchOutcome["items"][number] }> =>
     ipcRenderer.invoke("literature:lookupDoi", doi),
   literatureSave: (projectId: string, input: unknown, opts: { note?: string; manuallyVerified?: boolean }) =>
@@ -52,7 +52,8 @@ const api = {
   stage4DeleteDirection: (id: string) => ipcRenderer.invoke("stage4:deleteDirection", id),
   stage4GenerateDesignDraft: (projectId: string) => ipcRenderer.invoke("stage4:generateDesignDraft", projectId),
   stage4GenerateProposal: (projectId: string) => ipcRenderer.invoke("stage4:generateProposal", projectId),
-  stage4SaveVersion: (projectId: string, stageKey: string, contentJson: string, note: string) => ipcRenderer.invoke("stage4:saveVersion", projectId, stageKey, contentJson, note),
+  stage4SaveVersion: (projectId: string, stageKey: string, contentJson: string, note: string, name: string) => ipcRenderer.invoke("stage4:saveVersion", projectId, stageKey, contentJson, note, name),
+  stage4RenameVersion: (versionId: number, name: string) => ipcRenderer.invoke("stage4:renameVersion", versionId, name),
   stage4ListVersions: (projectId: string, stageKey: string) => ipcRenderer.invoke("stage4:listVersions", projectId, stageKey),
   stage4RestoreVersion: (versionId: number) => ipcRenderer.invoke("stage4:restoreVersion", versionId),
   stage4ReplaceHypotheses: (projectId: string, cards: unknown) => ipcRenderer.invoke("stage4:replaceHypotheses", projectId, cards),
@@ -88,6 +89,7 @@ const api = {
   aiListConversations: (projectId: string, stageKey: string) => ipcRenderer.invoke("ai:listConversations", projectId, stageKey),
   aiClearConversations: (projectId: string, stageKey: string) => ipcRenderer.invoke("ai:clearConversations", projectId, stageKey),
   aiProjectKnowledge: (projectId: string): Promise<string> => ipcRenderer.invoke("ai:projectKnowledge", projectId),
+  aiTopicOptions: (projectId: string): Promise<{ ok: boolean; message: string; options?: Array<{ title: string; rationale: string }> }> => ipcRenderer.invoke("ai:topicOptions", projectId),
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);

@@ -62,58 +62,104 @@ export class LiteratureService {
     }
   }
 
-  /** 一键自动找文献：从选题、变量与研究设计中推导检索式，直接跑真实 Crossref 并给出文献地址。 */
-  async autoSearch(projectId: string): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: SearchOutcome["items"] }> {
+  /** 一键自动找文献：按总数/国内/国外篇数推导检索式，跑真实 Crossref；排除已保存与历史推荐的 DOI，保证再次检索得到不同结果。 */
+  async autoSearch(projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[] }): Promise<{
+    ok: boolean;
+    message: string;
+    queryUsed: string[];
+    results: SearchOutcome["items"];
+    counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number };
+    cnNote?: string;
+  }> {
+    const total = Math.min(30, Math.max(1, opts?.total ?? 15));
+    const cnRequested = Math.min(total, Math.max(0, opts?.cn ?? 0));
+    const enRequested = total - cnRequested;
+    const exclude = new Set((opts?.excludeDois ?? []).map((d) => d.trim()).filter(Boolean));
     const detail = this.db.getProjectDetail(projectId);
     const topic = detail.content["topic"] ?? {};
     const design = detail.content["design"] ?? {};
-    const queries: string[] = [];
     const direction = String(topic["direction"] ?? "").trim();
-    if (direction) queries.push(direction.split(/[，,；;\n。]/)[0].trim());
+    const candidatesField = String(topic["candidates"] ?? "").trim();
+    const abstract = String(design["abstract"] ?? "").trim();
+
+    // 国外检索式（英文与变量组合）
+    const enQueries: string[] = [];
+    if (direction) enQueries.push(direction.split(/[，,；;\n。]/)[0].trim());
     const variablesJson = String(topic["variables"] ?? "").trim();
     if (variablesJson) {
       try {
         const v = JSON.parse(variablesJson) as Record<string, string[]>;
         const parts = [...(v.iv ?? []), ...(v.dv ?? []), ...(v.mediator ?? [])].map((s) => String(s).trim()).filter(Boolean);
-        if (parts.length > 0) queries.push(parts.join(" "));
+        if (parts.length > 0) enQueries.push(parts.join(" "));
       } catch { /* 忽略非 JSON */ }
     }
-    const abstract = String(design["abstract"] ?? "").trim();
-    if (abstract) queries.push(abstract.slice(0, 120));
-    const candidatesField = String(topic["candidates"] ?? "").trim();
-    if (candidatesField) queries.push(candidatesField.split(/[。\n]/)[0].trim().slice(0, 120));
-    const used = queries.map((q) => q.trim()).filter((q) => q.length > 2).slice(0, 3);
-    if (used.length === 0) {
-      return { ok: false, message: "还没有可用的选题信息：请先在「前期检索与选题」填写研究方向或变量，或在「研究问题与设计」填写摘要", queryUsed: [], results: [] };
+    if (abstract) enQueries.push(abstract.slice(0, 120));
+
+    // 国内检索式（中文关键词；Crossref 中文覆盖有限，如实说明）
+    const cnTokens: string[] = [];
+    for (const text of [direction, candidatesField, abstract]) {
+      const matches = text.match(/[\u4e00-\u9fa5]{2,}/g) ?? [];
+      for (const m of matches) {
+        const t = m.trim();
+        if (t.length >= 2 && !cnTokens.includes(t)) cnTokens.push(t);
+      }
     }
-    const seen = new Set<string>();
+    cnTokens.sort((a, b) => b.length - a.length);
+    const cnQueries = cnTokens.slice(0, 2).map((t) => t.slice(0, 40));
+    const cnNote = cnRequested > 0 && cnQueries.length === 0
+      ? "项目里没有可用的中文关键词：国内文献请在下方的「检索与核验」或「手动录入」中补充（Crossref 对中文文献覆盖有限）"
+      : undefined;
+
+    const used: string[] = [];
     const results: SearchOutcome["items"] = [];
+    const seen = new Set<string>();
+    let cnFound = 0;
+    let enFound = 0;
     let lastError = "";
-    for (const q of used) {
+
+    const fetchOne = async (q: string) => {
+      used.push(q);
       try {
-        const outcome = await crossrefSearch(q, this.settings.getContactEmail(), this.signalWithTimeout());
-        if (outcome.status === "error") { lastError = outcome.message; continue; }
+        const outcome = await crossrefSearch(q, this.settings.getContactEmail(), this.signalWithTimeout(), { rows: 20 });
+        if (outcome.status === "error") { lastError = outcome.message; return; }
         for (const item of outcome.items) {
           const key = item.doi || item.title;
-          if (key && !seen.has(key)) {
-            seen.add(key);
-            results.push(item);
-          }
-          if (results.length >= 15) break;
+          if (!key || seen.has(key) || exclude.has(item.doi)) continue;
+          seen.add(key);
+          results.push(item);
         }
         this.db.appendSearchLog(projectId, "crossref", q, results.length, "ok", "自动检索");
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
       }
-      if (results.length >= 15) break;
+    };
+
+    for (const q of enQueries) {
+      if (enFound >= enRequested) break;
+      const before = results.length;
+      await fetchOne(q);
+      enFound += results.length - before;
+      if (results.length >= total) break;
     }
+    for (const q of cnQueries) {
+      if (cnFound >= cnRequested || results.length >= total) break;
+      const before = results.length;
+      await fetchOne(q);
+      cnFound += results.length - before;
+    }
+
+    const counts = { cnRequested, enRequested, cnFound, enFound };
     if (results.length === 0) {
-      return { ok: false, message: "自动检索没有返回结果（真实 Crossref）" + (lastError ? "：" + lastError : ""), queryUsed: used, results: [] };
+      return { ok: false, message: "自动检索没有返回结果（真实 Crossref）" + (lastError ? "：" + lastError : ""), queryUsed: used, results, counts, cnNote };
     }
-    return { ok: true, message: "自动检索完成：基于" + used.length + " 条检索式，共找到 " + results.length + " 条真实文献（已按 DOI 去重）", queryUsed: used, results };
+    const parts = ["自动检索完成：共 " + results.length + " 条真实文献"];
+    if (cnRequested > 0) parts.push("国内 " + cnFound + "/" + cnRequested);
+    parts.push("国外 " + enFound + "/" + enRequested);
+    parts.push("（已排除已保存与历史推荐的文献，再次检索会得到不同结果）");
+    return { ok: true, message: parts.join("，"), queryUsed: used, results: results.slice(0, total), counts, cnNote };
   }
 
-  /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */
+  /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */  /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */
   saveItem(projectId: string, input: LiteratureInput, opts: { note?: string; manuallyVerified?: boolean }): SaveOutcome {
     const doi = normalizeDoi(input.doi ?? "");
     if (doi) {

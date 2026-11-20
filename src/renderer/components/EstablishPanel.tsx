@@ -46,6 +46,9 @@ export function EstablishPanel({ detail, onUpdated }: { detail: ProjectDetail; o
   const [error, setError] = useState("");
   const [knowledge, setKnowledge] = useState("");
   const [showKnowledge, setShowKnowledge] = useState(false);
+  const [topicOptions, setTopicOptions] = useState<Array<{ title: string; rationale: string }>>([]);
+  const [topicBusy, setTopicBusy] = useState(false);
+  const [adoptedTitle, setAdoptedTitle] = useState("");
 
   const refreshKnowledge = useCallback(async () => {
     const a = api();
@@ -86,6 +89,35 @@ export function EstablishPanel({ detail, onUpdated }: { detail: ProjectDetail; o
 
   const toggleDiscipline = (d: string) => {
     setDisciplines((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+  };
+
+  const generateTopics = async () => {
+    const a = api();
+    if (!a || topicBusy) return;
+    setTopicBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const r = await a.aiTopicOptions(detail.project.id);
+      if (r.ok && r.options) {
+        setTopicOptions(r.options);
+        setMessage(r.message);
+      } else {
+        setError(r.message);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTopicBusy(false);
+    }
+  };
+
+  const adoptTopic = async (title: string) => {
+    const a = api();
+    if (!a) return;
+    await a.setStageContent(detail.project.id, "topic", "direction", title);
+    setAdoptedTitle(title);
+    setMessage("已采用选题：「" + title + "」——已写入「前期检索与选题」的研究方向，可继续生成变量与研究设计");
   };
 
   return (
@@ -141,6 +173,23 @@ export function EstablishPanel({ detail, onUpdated }: { detail: ProjectDetail; o
             {enabled[m.key] && (
               <textarea className="textarea" placeholder={m.placeholder} value={materials[m.key]} onChange={(e) => setMaterials((prev) => ({ ...prev, [m.key]: e.target.value }))} />
             )}
+          </div>
+        ))}
+      </div>
+
+      <div className="topic-options">
+        <div className="card-head-row">
+          <h3 className="ai-title">选题方向生成（根据专业与个人信息，3 选 1）</h3>
+          <button className="btn btn-primary" disabled={topicBusy} onClick={() => void generateTopics()}>{topicBusy ? "生成中…" : "生成 3 个选题方向"}</button>
+        </div>
+        <p className="muted">不用自己先想选题：AI 会读取上面的专业、学历、方法与已有材料，生成 3 个方向让你选。选定后会自动写入「前期检索与选题」阶段，后面的变量、研究设计与文献都可以继续推进。未配置模型时请先在「服务与模型设置」中添加线路并分配「研究设计」角色。</p>
+        {topicOptions.map((o) => (
+          <div key={o.title} className={"ai-suggest-item" + (adoptedTitle === o.title ? " adopted" : "")}>
+            <div className="ai-suggest-head">
+              <strong>{o.title}</strong>
+              <button className="btn btn-sm" disabled={adoptedTitle === o.title} onClick={() => void adoptTopic(o.title)}>{adoptedTitle === o.title ? "已采用" : "采用此选题"}</button>
+            </div>
+            <div className="muted">推荐理由：{o.rationale}</div>
           </div>
         ))}
       </div>

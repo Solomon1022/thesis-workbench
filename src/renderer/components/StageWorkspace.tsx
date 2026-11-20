@@ -297,38 +297,6 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
             <AiAssistant detail={detail} stageKey={stageKey} targets={aiTargets} onFill={handleAiFill} />
           )}
 
-          {stageKey === "design" && (
-            <div className="hypo-wrap">
-              <div className="card-head-row">
-                <h3 className="ai-title">研究假设卡片（保存后可随时更换）</h3>
-              </div>
-              {hypotheses.length > 0 && (
-                <div className="hypo-list">
-                  {hypotheses.map((h, i) => (
-                    <div key={i} className="hypo-card">
-                      <div className="lit-search-row">
-                        <input className="input hypo-num" aria-label="假设编号" value={h.number} onChange={(e) => updateCard(i, { number: e.target.value })} />
-                        <input className="input" aria-label="假设陈述" placeholder="假设陈述" value={h.statement} onChange={(e) => updateCard(i, { statement: e.target.value })} />
-                      </div>
-                      <div className="lit-search-row">
-                        <input className="input" aria-label="自变量" placeholder="自变量（IV）" value={h.iv} onChange={(e) => updateCard(i, { iv: e.target.value })} />
-                        <input className="input" aria-label="因变量" placeholder="因变量（DV）" value={h.dv} onChange={(e) => updateCard(i, { dv: e.target.value })} />
-                      </div>
-                      <div className="lit-search-row">
-                        <input className="input" aria-label="假设依据" placeholder="依据（文献或待核验）" value={h.basis} onChange={(e) => updateCard(i, { basis: e.target.value })} />
-                        <button className="btn btn-sm btn-danger" onClick={() => setHypotheses((prev) => prev.filter((_, idx) => idx !== i))}>移除</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="lit-actions">
-                <button className="btn" onClick={() => setHypotheses((prev) => [...prev, { number: "H" + (prev.length + 1), statement: "", iv: "", dv: "", basis: "" }])}>添加空白卡片</button>
-                <button className="btn btn-primary" onClick={() => void saveHypotheses()}>保存假设卡片</button>
-              </div>
-            </div>
-          )}
-
           {stageKey === "topic" && savedDirections.length > 0 && (
             <div className="lit-list">
               {savedDirections.map((d) => (

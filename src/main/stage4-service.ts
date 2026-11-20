@@ -288,8 +288,12 @@ export class Stage4Service {
 
   // ---- 版本 ----
 
-  saveVersion(projectId: string, stageKey: string, contentJson: string, note: string): number {
-    return this.db.saveStageVersion(projectId, stageKey, contentJson, note);
+  saveVersion(projectId: string, stageKey: string, contentJson: string, note: string, name = ""): number {
+    return this.db.saveStageVersion(projectId, stageKey, contentJson, note, name);
+  }
+
+  renameVersion(versionId: number, name: string): void {
+    this.db.renameStageVersion(versionId, name);
   }
 
   listVersions(projectId: string, stageKey: string) {
