@@ -130,6 +130,17 @@ export class ReactSearchService {
         result: topicTokens.filter((t) => isResultWord(t)).slice(0, 2),
       };
     }
+    // 强制关键词返回：分类为空时兜底选题文本词 → 项目名；仍为空则明确提示
+    if (cls.subject.length === 0 && cls.result.length === 0) {
+      const fallbackTokens = topicText.split(/[^a-zA-Z0-9\u4e00-\u9fa5]+/).filter((t) => t.length >= 2).slice(0, 6);
+      if (fallbackTokens.length > 0) {
+        cls = { ...cls, subject: fallbackTokens.filter((t) => !isResultWord(t)).slice(0, 4), result: fallbackTokens.filter((t) => isResultWord(t)).slice(0, 2) };
+      } else {
+        const nameTokens = String(detail.project.name ?? "").split(/[^a-zA-Z0-9\u4e00-\u9fa5]+/).filter((t) => t.length >= 2).slice(0, 4);
+        cls = { ...cls, subject: nameTokens };
+      }
+    }
+
     const model = this.resolver();
 
     let plan: KeywordPlan | null = null;
@@ -263,8 +274,36 @@ export class ReactSearchService {
 
     const cnFiltered = cnPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, topicText) >= 0.2);
     const enFiltered = enPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, topicText) >= 0.2);
-    const cnFound = Math.min(cnRequested, cnFiltered.length);
-    const enFound = Math.min(enRequested, enFiltered.length);
+    let cnFound = Math.min(cnRequested, cnFiltered.length);
+    let enFound = Math.min(enRequested, enFiltered.length);
+
+    // 放宽二次检索：严格命中不足时，放宽为「主体或结果至少命中其一」并标注需核验（不编造，只是降低门槛）
+    const loosePool = (pool: typeof cnPool, seen: Set<string>) => {
+      const loose: typeof cnPool = [];
+      for (const item of pool) {
+        const key = item.doi || (item.title + "|" + item.authors);
+        if (seen.has(key)) continue;
+        const anyHit = /[\u4e00-\u9fa5]/.test(item.title)
+          ? plan.subject.some((s) => item.title.includes(s)) || plan.result.some((s) => item.title.includes(s))
+          : plan.subject.some((s) => item.title.toLowerCase().includes(String(s).toLowerCase())) || plan.result.some((s) => item.title.toLowerCase().includes(String(s).toLowerCase()));
+        if (!anyHit) continue;
+        if (ngramSimilarity(item.title + " " + item.abstract, topicText) < 0.15) continue;
+        seen.add(key);
+        loose.push({ ...item, level: "loose" });
+      }
+      return loose;
+    };
+    const strictKeys = new Set([...cnFiltered, ...enFiltered].map((i) => i.doi || (i.title + "|" + i.authors)));
+    if (cnFound < cnRequested) {
+      const looseCn = loosePool(cnPool, strictKeys).slice(0, cnRequested - cnFound);
+      cnFiltered.push(...looseCn);
+      cnFound = Math.min(cnRequested, cnFiltered.length);
+    }
+    if (enFound < enRequested) {
+      const looseEn = loosePool(enPool, strictKeys).slice(0, enRequested - enFound);
+      enFiltered.push(...looseEn);
+      enFound = Math.min(enRequested, enFiltered.length);
+    }
     const results = [...cnFiltered.slice(0, cnFound), ...enFiltered.slice(0, enFound)];
     const needMore = cnFound < cnRequested || enFound < enRequested;
     const counts = { cnRequested, enRequested, cnFound, enFound };

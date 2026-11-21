@@ -146,24 +146,33 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.getByRole("button", { name: /前期检索与选题/ }).click();
     await page.getByLabel("研究方向与关键词").fill("attention");
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
-    // 第一步：AI 优化关键词（未配模型 → 词典确定性方案）
-    await page.getByRole("button", { name: /① AI 优化关键词/ }).click();
+    // 第一步：生成关键词方案（未配模型 → 词典确定性方案）→ 关键词输出框
+    await page.getByRole("button", { name: "生成关键词方案" }).click();
     await expect(page.getByText(/逐个检索计划/)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/主体词：/).first()).toBeVisible();
+    // 关键词增删 + 回退前进
+    await page.getByLabel("新增关键词").fill("直播电商");
+    await page.getByRole("button", { name: "添加" }).click();
+    await expect(page.getByText(/背景词：直播电商|主体词：直播电商|结果词：直播电商/).first()).toBeVisible();
+    await page.getByRole("button", { name: "↩ 回退" }).click();
+    await expect(page.getByText(/直播电商/)).toHaveCount(0);
+    await page.getByRole("button", { name: "↪ 前进" }).click();
+    await expect(page.getByText(/直播电商/).first()).toBeVisible();
     // 再次查询按钮常驻但暂时禁用（未检索前不可用）
-    await expect(page.getByRole("button", { name: /AI 再次查询/ })).toBeDisabled();
-    // 第二步：逐关键词检索
-    await page.getByRole("button", { name: "② AI 搜寻论文" }).click();
+    await expect(page.getByRole("button", { name: "再次查询", exact: true })).toBeDisabled();
+    // 第二步：逐个关键词检索
+    await page.getByRole("button", { name: "开始检索" }).click();
     await expect(page.getByText(/检索完成/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" })).toContainText("https://example.org/attention");
     await expect(page.getByText("ReAct 逐关键词检索")).toBeVisible();
     // 数量未达标 → 再次查询按钮启用（排除上批文献）
-    await expect(page.getByRole("button", { name: /AI 再次查询/ })).toBeEnabled();
-    await page.getByRole("button", { name: /AI 再次查询/ }).click();
+    await expect(page.getByRole("button", { name: "再次查询", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "再次查询", exact: true }).click();
     await expect(page.getByText(/已排除/).first()).toBeVisible({ timeout: 30_000 });
     // 关键词标签可点击删除（词，不是句子）
-    await page.getByText(/主体词：/).first().click();
-    await expect(page.getByText(/主体词：/)).toHaveCount(0);
+    await page.locator(".kw-chips").getByText(/主体词：attention/).click();
+    await expect(page.locator(".kw-chips").getByText(/主体词：attention/)).toHaveCount(0);
+    await expect(page.locator(".kw-chips").getByText(/主体词：直播电商/)).toHaveCount(1);
 
     // 1) Crossref 检索 → 候选 → 保存
     await page.getByLabel("检索式").fill("attention transformer");
