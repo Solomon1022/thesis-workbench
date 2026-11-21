@@ -77,6 +77,9 @@ export class ReactSearchService {
     if (String(topic["variables"] ?? "").trim()) parts.push("变量：" + String(topic["variables"]));
     if (String(design["abstract"] ?? "").trim()) parts.push("摘要：" + String(design["abstract"]).slice(0, 400));
     if (String(writing["keywords"] ?? "").trim()) parts.push("论文关键词：" + String(writing["keywords"]));
+    if (!String(writing["keywords"] ?? "").trim() && String(design["abstract_keywords"] ?? "").trim()) {
+      parts.push("摘要与关键词：" + String(design["abstract_keywords"]));
+    }
     if (String(design["research_question"] ?? "").trim()) parts.push("研究问题：" + String(design["research_question"]));
     for (const h of this.db.listHypotheses(projectId)) {
       parts.push("假设：" + h.number + " " + h.statement + "（IV:" + h.iv + " DV:" + h.dv + "）");
@@ -143,6 +146,12 @@ export class ReactSearchService {
 
     const model = this.resolver();
 
+    /* AI 步骤返回的某类关键词为空时，回退到上一步/词典结果（推理模型常因思考耗 token 返回空数组） */
+    const pickArr = (ai: string[] | undefined, prev: string[]): string[] => {
+      const cleaned = (Array.isArray(ai) ? ai : []).filter((s) => String(s ?? "").trim().length > 0);
+      return cleaned.length > 0 ? cleaned : prev;
+    };
+
     let plan: KeywordPlan | null = null;
     if (model) {
       try {
@@ -151,29 +160,37 @@ export class ReactSearchService {
           "只输出 JSON：{\"subject\":[\"主体词（研究对象/自变量）\"],\"result\":[\"结果词（因变量/结局）\"],\"extra\":[\"背景补充词\"]}",
           "规则：以选题与摘要的关键词为主、背景为辅；每个词 2-8 字；禁止输出泛词（如「研究」「分析」「影响」）。",
         ].join("\n");
-        const step1 = await model.generate(extractSystem, context, 1200, 0.3);
+        const step1 = await model.generate(extractSystem, context, 4000, 0.3);
         const ex1 = this.parseJsonSafe(step1) as { subject?: string[]; result?: string[]; extra?: string[] } | null;
-        const base = ex1 ?? { subject: cls.subject, result: cls.result, extra: [] };
+        const base = {
+          subject: pickArr(ex1?.subject, cls.subject),
+          result: pickArr(ex1?.result, cls.result),
+          extra: pickArr(ex1?.extra, []),
+        };
         const extendSystem = [
           "你是学术检索关键词规划器（ReAct）。第 2 步：为给定关键词延申同义词与相似相关关键词（保持同概念层级，禁止上义泛词）。",
           "只输出 JSON：{\"subject\":[\"原词\",\"同义1\",\"同义2\"],\"result\":[\"原词\",\"同义1\"],\"extra\":[\"补充词\"]}",
           "每个原词延申 2-3 个；每类总量不超过 6 个。",
         ].join("\n");
-        const step2 = await model.generate(extendSystem, JSON.stringify(base), 1600, 0.4);
+        const step2 = await model.generate(extendSystem, JSON.stringify(base), 4000, 0.4);
         const ex2 = this.parseJsonSafe(step2) as { subject?: string[]; result?: string[]; extra?: string[] } | null;
         const merged = {
-          subject: [...new Set([...(base.subject ?? []), ...(ex2?.subject ?? [])])].slice(0, 6),
-          result: [...new Set([...(base.result ?? []), ...(ex2?.result ?? [])])].slice(0, 4),
-          extra: [...new Set([...(base.extra ?? []), ...(ex2?.extra ?? [])])].slice(0, 6),
+          subject: [...new Set([...base.subject, ...pickArr(ex2?.subject, [])])].slice(0, 6),
+          result: [...new Set([...base.result, ...pickArr(ex2?.result, [])])].slice(0, 4),
+          extra: [...new Set([...base.extra, ...pickArr(ex2?.extra, [])])].slice(0, 6),
         };
         const checkSystem = [
           "你是学术检索关键词规划器（ReAct）。第 3 步自检：删除上义泛词（主播、直播、消费者、用户、网络这类过度宽泛词），保留与选题同概念层级的词。",
           "只输出 JSON：{\"subject\":[],\"result\":[],\"extra\":[]}（修正后的列表）",
         ].join("\n");
-        const step3 = await model.generate(checkSystem, JSON.stringify(merged), 1200, 0.2);
+        const step3 = await model.generate(checkSystem, JSON.stringify(merged), 2000, 0.2);
         const ex3 = this.parseJsonSafe(step3) as { subject?: string[]; result?: string[]; extra?: string[] } | null;
-        const final = ex3 ?? merged;
-        plan = this.buildPlan(this.sanitizeTerms(final.subject ?? []), this.sanitizeTerms(final.result ?? []), this.sanitizeTerms(final.extra ?? []), cls, true);
+        const final = {
+          subject: pickArr(ex3?.subject, merged.subject),
+          result: pickArr(ex3?.result, merged.result),
+          extra: pickArr(ex3?.extra, merged.extra),
+        };
+        plan = this.buildPlan(this.sanitizeTerms(final.subject), this.sanitizeTerms(final.result), this.sanitizeTerms(final.extra), cls, true);
       } catch { plan = null; }
     }
     if (!plan) {
