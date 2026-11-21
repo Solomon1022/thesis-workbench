@@ -44,7 +44,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const [claim, setClaim] = useState("");
   const [location, setLocation] = useState("");
   const [showCN, setShowCN] = useState(false);
-  const [autoState, setAutoState] = useState<{ ok: boolean; message: string; queryUsed: string[]; results: Candidate[]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string } | null>(null);
+  const [autoState, setAutoState] = useState<{ ok: boolean; message: string; queryUsed: string[]; results: Candidate[]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string; backgroundLinks?: Array<{ name: string; url: string }> } | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoTotal, setAutoTotal] = useState(15);
   const [autoCn, setAutoCn] = useState(0);
@@ -151,7 +151,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         openAccessOnly: platformPrefs.openAccessOnly,
         globalLibraries: platformPrefs.globalLibraries,
       });
-      setAutoState(r);
+      setAutoState({ ...r, results: r.results as Candidate[] });
       if (r.preferredLinks) setPreferredLinks(r.preferredLinks);
       if (r.ok) {
         setCandidates(r.results);
@@ -344,6 +344,17 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         </div>
         {autoRangeWarn && <p className="banner banner-error">{autoRangeWarn}</p>}
         {autoState && autoState.ok && <p className="muted">本次检索式：{autoState.queryUsed.join("；")}</p>}
+        {autoState && <p className="muted">说明：{autoState.cnNote ?? ""}</p>}
+        {autoState?.backgroundLinks && autoState.backgroundLinks.length > 0 && (
+          <div className="preferred-links">
+            <span className="muted">背景引用与补充检索（行业报告/政策文件不计入学术文献配额）：</span>
+            <div className="lit-suggest">
+              {autoState.backgroundLinks.map((l) => (
+                <button key={l.name} className="chip" onClick={() => openUrl(l.url)}>{l.name}</button>
+              ))}
+            </div>
+          </div>
+        )}
         {preferredLinks.length > 0 && (
           <div className="preferred-links">
             <span className="muted">偏向检索（非绝对，点击用本次检索式跳转官网）：</span>
@@ -429,9 +440,11 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
               <div key={i} className="lit-candidate">
                 <div className="lit-candidate-main">
                   <div className="lit-title">{c.title}
+                    {(c as Candidate & { level?: string }).level && (c as Candidate & { level?: string }).level !== "core" && <span className="badge badge-warn">{(c as Candidate & { level?: string }).level === "l1" ? "1级扩容·同概念不同场景" : (c as Candidate & { level?: string }).level === "l2" ? "2级扩容·同理论不同对象" : (c as Candidate & { level?: string }).level}</span>}
                     {(c as Candidate & { refType?: string }).refType && <span className="badge badge-done">{REF_TYPE_LABEL[(c as Candidate & { refType?: string }).refType as string] ?? "其他"}·{REF_TYPE_PRIORITY[(c as Candidate & { refType?: string }).refType as string] ?? "—"}</span>}
                     {(c as Candidate & { region?: string }).region && <span className="badge">{REGION_LABEL[(c as Candidate & { region?: string }).region as "domestic" | "foreign" | "unknown"] ?? "待区分"}</span>}
                     {c.preprint && <span className="badge badge-warn">预印本</span>}
+                    {(c as Candidate & { citedBy?: number }).citedBy !== undefined && <span className="badge">被引 {(c as Candidate & { citedBy?: number }).citedBy}</span>}
                   </div>
                   <div className="muted">{c.authors}{c.year ? "（" + c.year + "）" : ""}{c.venue ? " · " + c.venue : ""}</div>
                   <div className="muted">DOI: {c.doi || "无"}</div>

@@ -1,4 +1,4 @@
-export type LiteratureSource = "crossref" | "arxiv" | "pubmed" | "manual" | "ris-import" | "manual-platform" | "ai-suggested";
+export type LiteratureSource = "crossref" | "openalex" | "arxiv" | "pubmed" | "manual" | "ris-import" | "manual-platform" | "ai-suggested";
 
 export type VerifiedStatus = "verified" | "unverified" | "conflict";
 
@@ -66,6 +66,7 @@ export const CN_PLATFORMS = [
 ];
 
 export const LITERATURE_SOURCE_LABEL: Record<LiteratureSource, string> = {
+  openalex: "OpenAlex",
   crossref: "Crossref",
   arxiv: "arXiv",
   pubmed: "PubMed",
@@ -203,3 +204,35 @@ export function refTypeFromCrossrefType(type: string): RefTypeKey {
   if (t.includes("journal")) return "journal";
   return "other";
 }
+
+/** 中文关键词扩词库（学术同义词；人工维护，可按需扩展） */
+export const ACADEMIC_SYNONYMS: Record<string, string[]> = {
+  "虚拟主播": ["虚拟数字人", "数字人主播", "AI主播", "智能主播", "虚拟形象"],
+  "数字人": ["虚拟人", "虚拟数字人", "虚拟主播", "数智人"],
+  "购买意愿": ["购买意向", "购买行为", "消费意愿", "购买决策", "消费行为"],
+  "直播电商": ["电商直播", "直播带货", "网络直播", "直播商务"],
+  "互动性": ["交互性", "互动行为", "双向互动", "人际互动"],
+  "社会临场感": ["社会存在感", "临场感", "在场感"],
+  "个性化推荐": ["个性化服务", "推荐系统", "智能推荐", "定制化推荐"],
+  "消费者行为": ["消费者决策", "购买决策", "消费心理"],
+  "S-O-R": ["刺激机体反应", "刺激-有机体-反应", "SOR模型"],
+  "计划行为理论": ["TPB", "计划行为模型"],
+  "技术接受模型": ["TAM", "技术采纳模型"],
+};
+
+/** 内置中文核心期刊名单（人工维护的常见核心期刊；用于排序权重，不是官方接口） */
+export const CORE_CN_JOURNALS: string[] = [
+  "经济与管理", "商业经济研究", "企业经济", "管理评论", "管理世界", "南开管理评论",
+  "北京理工大学学报", "东华理工大学学报", "时代经贸", "现代商业", "商业观察",
+  "营销界", "新闻与传播研究", "国际新闻界", "现代传播", "电子商务评论",
+  "运筹与模糊学", "管理科学学报", "中国管理科学", "外国经济与管理", "软科学",
+];
+
+/** 分级扩容标签（1/2 级可计入学术文献；3/4 级只是背景引用，不计入配额） */
+export const EXPANSION_LEVELS = {
+  core: { label: "核心主题", cite: "文献综述·核心变量研究，正常引用" },
+  l1: { label: "1级扩容（同概念·不同场景，相关度≈90%）", cite: "文献综述·核心变量研究，可正常引用" },
+  l2: { label: "2级扩容（同理论框架·不同研究对象，相关度≈70%）", cite: "文献综述·理论基础与模型应用，支撑模型合理性" },
+  l3: { label: "3级：行业报告/白皮书（仅背景引用）", cite: "开题报告与引言背景，不算学术文献" },
+  l4: { label: "4级：权威媒体/政策文件（仅背景引用）", cite: "只能作为背景引用，不计入学术文献配额" },
+} as const;

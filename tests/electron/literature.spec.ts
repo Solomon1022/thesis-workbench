@@ -50,6 +50,31 @@ function startCrossrefMock(): { server: Server; base: string; setMode: (m: "ok" 
   };
 }
 
+function startOpenalexMock(): { server: Server; base: string } {
+  const works = [
+    { id: "https://openalex.org/W1", title: "Interaction Quality and Consumer Willingness: Evidence from E-commerce", publication_year: 2023, language: "en", type: "article", doi: "https://doi.org/10.1000/oa1", authorships: [{ author: { display_name: "Chen W." } }], primary_location: { source: { display_name: "Journal of Digital Commerce" } }, abstract_inverted_index: { Consumer: [0], willingness: [1] }, cited_by_count: 5, open_access: { is_oa: true } },
+    { id: "https://openalex.org/W2", title: "AI虚拟主播互动质量对消费者购买意愿的影响", publication_year: 2024, language: "zh", type: "article", doi: "https://doi.org/10.1000/oa2", authorships: [{ author: { display_name: "王明" } }], primary_location: { source: { display_name: "经济与管理" } }, abstract_inverted_index: { 虚拟主播: [0], 购买意愿: [1] }, cited_by_count: 3, open_access: { is_oa: false } },
+  ];
+  const server = createServer((req, res) => {
+    const url = req.url ?? "";
+    if (url.startsWith("/works?")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ results: works }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  return {
+    server,
+    get base() {
+      const a = server.address();
+      const port = typeof a === "object" && a ? a.port : 0;
+      return "http://127.0.0.1:" + port;
+    },
+  };
+}
+
 function startArxivMock(): { server: Server; base: string } {
   const xml = '<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom"><entry><id>http://arxiv.org/abs/2401.00001v1</id><title>Diffusion Models Beat GANs on Image Synthesis</title><summary>We show that diffusion models can achieve better sample quality than GANs.</summary><published>2024-01-01T00:00:00Z</published><author><name>Prafulla Dhariwal</name></author><arxiv:doi>10.48550/arXiv.2401.00001</arxiv:doi></entry></feed>';
   const server = createServer((_req, res) => {
@@ -69,14 +94,17 @@ function startArxivMock(): { server: Server; base: string } {
 test("文献链路：检索→核验→保存→证据卡片→重启恢复", async () => {
   const userDataDir = mkdtempSync(path.join(tmpdir(), "thesis-workbench-e2e-"));
   const crossref = startCrossrefMock();
+  const openalex = startOpenalexMock();
   const arxiv = startArxivMock();
   await new Promise<void>((resolve) => crossref.server.listen(0, "127.0.0.1", () => resolve()));
+  await new Promise<void>((resolve) => openalex.server.listen(0, "127.0.0.1", () => resolve()));
   await new Promise<void>((resolve) => arxiv.server.listen(0, "127.0.0.1", () => resolve()));
   const env = {
     ...process.env,
     NODE_ENV: "test",
     TWB_TEST_USER_DATA: userDataDir,
     TWB_CROSSREF_BASE: crossref.base,
+    TWB_OPENALEX_BASE: openalex.base,
     TWB_ARXIV_BASE: arxiv.base,
     ELECTRON_DEV_URL: "http://localhost:5173",
   } as { [key: string]: string };
@@ -119,11 +147,13 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.getByLabel("研究方向与关键词").fill("deep learning attention");
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
     await page.getByRole("button", { name: "自动找文献（含地址）" }).click();
-    await expect(page.getByText(/自动检索完成/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/双池检索完成/).first()).toBeVisible({ timeout: 30_000 });
+    // 背景引用与补充检索链接（行业报告/政策不计入配额）
+    await expect(page.getByRole("button", { name: "行业报告·艾瑞咨询" })).toBeVisible();
     await expect(page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" })).toContainText("https://example.org/attention");
     await expect(page.getByText("Crossref（一键自动检索）")).toBeVisible();
     // 偏好库跳转链接（偏向，非绝对）——知网标签含「订阅」被开放资料过滤，全球通用库勾选
-    await expect(page.locator(".preferred-links")).toContainText("偏向检索（非绝对");
+    await expect(page.locator(".preferred-links").filter({ hasText: "偏向检索（非绝对" })).toBeVisible();
 
     // 1) Crossref 检索 → 候选 → 保存
     await page.getByLabel("检索式").fill("attention transformer");
@@ -210,6 +240,7 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
   } finally {
     await app2.close();
     await new Promise<void>((resolve) => crossref.server.close(() => resolve()));
+    await new Promise<void>((resolve) => openalex.server.close(() => resolve()));
     await new Promise<void>((resolve) => arxiv.server.close(() => resolve()));
     const relative = path.relative(path.resolve(tmpdir()), path.resolve(userDataDir));
     if (relative && !relative.startsWith("..") && !path.isAbsolute(relative) && path.basename(userDataDir).startsWith("thesis-workbench-e2e-")) {
