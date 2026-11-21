@@ -27,7 +27,14 @@ export function AiAssistant({ detail, stageKey, targets, onFill }: {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [filled, setFilled] = useState<Record<string, boolean>>({});
+  const [elapsed, setElapsed] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!busy) { setElapsed(0); return; }
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
 
   const loadHistory = useCallback(async () => {
     const a = api();
@@ -131,7 +138,7 @@ export function AiAssistant({ detail, stageKey, targets, onFill }: {
               <div className="write-content">{h.content}</div>
             </div>
           ))}
-          {busy && <div className="ai-bubble ai-bot"><span className="ai-role">AI</span><div className="muted">思考中…</div></div>}
+          {busy && <div className="ai-bubble ai-bot"><span className="ai-role">AI</span><div className="muted">思考中…（推理模型较慢，已等待 {elapsed}s，请勿重复点击）</div></div>}
         </div>
         <div className="lit-search-row">
           <textarea className="textarea ai-input" ref={inputRef} aria-label="AI 提问" placeholder="输入问题，回车区域发送…" value={question} onChange={(e) => setQuestion(e.target.value)}

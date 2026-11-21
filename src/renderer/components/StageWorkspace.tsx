@@ -153,7 +153,7 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
       return t;
     }
     if (stageKey === "design") {
-      return [...fields.map((f) => ({ key: f.key, label: f.label })), { key: "hypotheses", label: "研究假设卡片", kind: "hypotheses" as const }];
+      return [...fields.filter((f) => f.key !== "hypotheses").map((f) => ({ key: f.key, label: f.label })), { key: "hypotheses", label: "研究假设卡片", kind: "hypotheses" as const }];
     }
     if (stageKey === "writing") {
       return [
@@ -187,11 +187,15 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
             return { number: String(r.number ?? "H"), statement: String(r.statement ?? ""), iv: String(r.iv ?? ""), dv: String(r.dv ?? ""), basis: String(r.basis ?? "") };
           }).filter((h) => h.statement.trim());
           if (cards.length > 0 && a) {
-            setHypotheses((prev) => [...prev, ...cards]);
-            void a.stage4ReplaceHypotheses(detail.project.id, [...hypotheses, ...cards]);
+            const merged = [...hypotheses, ...cards];
+            setHypotheses(merged);
+            void a.stage4ReplaceHypotheses(detail.project.id, merged);
           }
+          return;
         }
-      } catch { /* 不是 JSON 数组，忽略 */ }
+      } catch { /* 非 JSON：回退写入字段文本，不静默丢弃 */ }
+      setValues((prev) => ({ ...prev, hypotheses: content }));
+      sendValue("hypotheses", content);
       return;
     }
     setValues((prev) => ({ ...prev, [key]: content }));
@@ -291,6 +295,30 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
           {stageKey === "topic" && detail.project.researchMethod === "questionnaire" && (
             <div className="var-editor-wrap">
               <VariableEditor value={variablesJson} onChange={setVariables} />
+            </div>
+          )}
+
+          {stageKey === "design" && hypotheses.length > 0 && (
+            <div className="hypo-list-saved">
+              <div className="card-head-row">
+                <h3 className="ai-title">已保存研究假设（{hypotheses.length} 条，AI 生成后自动保存）</h3>
+              </div>
+              {hypotheses.map((h, i) => (
+                <div key={i} className="lit-item">
+                  <div className="lit-item-main">
+                    <div className="lit-title">{h.number} {h.statement}</div>
+                    <div className="muted">自变量：{h.iv || "未填"} · 因变量：{h.dv || "未填"} · 依据：{h.basis || "待核验"}</div>
+                  </div>
+                  <div className="lit-item-actions">
+                    <button className="btn btn-sm btn-danger" onClick={() => {
+                      const next = hypotheses.filter((_, idx) => idx !== i);
+                      setHypotheses(next);
+                      const a = api();
+                      if (a) void a.stage4ReplaceHypotheses(detail.project.id, next);
+                    }}>移除</button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
