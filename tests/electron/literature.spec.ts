@@ -141,19 +141,24 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.locator(".modal").getByRole("button", { name: "确定" }).click();
     await expect(page.getByText(/已保存论文库偏好/)).toBeVisible();
 
-    // 0) 一键自动找文献（基于选题内容，输出真实地址，不保存）
+    // 0) ReAct 两步检索（先规划关键词，再逐关键词检索）
     await expect(page.getByText("总数范围：大于等于 15 篇、小于等于 30 篇")).toBeVisible();
     await page.getByRole("button", { name: /前期检索与选题/ }).click();
-    await page.getByLabel("研究方向与关键词").fill("deep learning attention");
+    await page.getByLabel("研究方向与关键词").fill("attention");
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
-    await page.getByRole("button", { name: "自动找文献（含地址）" }).click();
-    await expect(page.getByText(/双池检索完成/).first()).toBeVisible({ timeout: 30_000 });
-    // 背景引用与补充检索链接（行业报告/政策不计入配额）
-    await expect(page.getByRole("button", { name: "行业报告·艾瑞咨询" })).toBeVisible();
+    // 第一步：AI 优化关键词（未配模型 → 词典确定性方案）
+    await page.getByRole("button", { name: "① AI 优化关键词" }).click();
+    await expect(page.getByText(/逐个检索计划/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/主体：/).first()).toBeVisible();
+    // 第二步：逐关键词检索
+    await page.getByRole("button", { name: "② AI 搜寻论文" }).click();
+    await expect(page.getByText(/检索完成/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" })).toContainText("https://example.org/attention");
-    await expect(page.getByText("Crossref（一键自动检索）")).toBeVisible();
-    // 偏好库跳转链接（偏向，非绝对）——知网标签含「订阅」被开放资料过滤，全球通用库勾选
-    await expect(page.locator(".preferred-links").filter({ hasText: "偏向检索（非绝对" })).toBeVisible();
+    await expect(page.getByText("ReAct 逐关键词检索")).toBeVisible();
+    // 数量未达标 → 再次查询按钮出现（排除上批文献）
+    await expect(page.getByRole("button", { name: /AI 再次查询/ })).toBeVisible();
+    await page.getByRole("button", { name: /AI 再次查询/ }).click();
+    await expect(page.getByText(/已排除/).first()).toBeVisible({ timeout: 30_000 });
 
     // 1) Crossref 检索 → 候选 → 保存
     await page.getByLabel("检索式").fill("attention transformer");
@@ -162,9 +167,9 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" }).getByRole("button", { name: "保存" }).click();
     await expect(page.getByText(/已保存：Attention/)).toBeVisible();
     await expect(page.locator(".lit-item").filter({ hasText: "Attention is all you need" }).getByText("已核验", { exact: true })).toBeVisible();
-    // 文献形式与国内外区分徽章（Crossref proceedings → 会议论文；英文题名初判国外）
+    // 文献形式与国内外区分徽章（Crossref proceedings → 会议论文；语言不替代国内外，初判为待区分）
     await expect(page.locator(".lit-item").filter({ hasText: "Attention is all you need" }).getByText("会议论文·中等（顶会除外）")).toBeVisible();
-    await expect(page.locator(".lit-item").filter({ hasText: "Attention is all you need" }).getByText("国外", { exact: true }).first()).toBeVisible();
+    await expect(page.locator(".lit-item").filter({ hasText: "Attention is all you need" }).getByText("待区分", { exact: true }).first()).toBeVisible();
 
     // 2) DOI 核验 → 保存 → 重复保存被去重
     await page.getByLabel("DOI 核验").fill("10.5555/deep-residual");

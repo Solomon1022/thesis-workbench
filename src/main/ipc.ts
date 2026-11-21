@@ -8,10 +8,11 @@ import type { DataService } from "./data-service";
 import type { ExportService } from "./export-service";
 import type { DocumentService } from "./document-service";
 import type { AiAssistService } from "./ai-assist-service";
+import type { ReactSearchService } from "./react-search";
 import type { TaskRoleKey } from "../shared/settings";
 import type { ProjectInput, StageStatus } from "../shared/types";
 
-export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService, exportService: ExportService, documentService: DocumentService, aiAssist: AiAssistService): void {
+export function registerIpc(db: ThesisDB, settings: SettingsService, literature: LiteratureService, stage4: Stage4Service, writing: WritingService, dataService: DataService, exportService: ExportService, documentService: DocumentService, aiAssist: AiAssistService, reactSearch: ReactSearchService): void {
   ipcMain.handle("runtime", () => ({ platform: process.platform, dbPath: db.path }));
   ipcMain.handle("project:list", () => db.listProjects());
   ipcMain.handle("project:create", (_e, input: ProjectInput) => db.createProject({ ...input, methods: (input as ProjectInput & { methods?: string[] }).methods ?? (input.researchMethod ? [input.researchMethod] : []) }));
@@ -49,6 +50,12 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("literature:autoSearch", (_e, projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[]; preferredPlatforms?: string[]; openAccessOnly?: boolean; globalLibraries?: boolean }) => literature.autoSearch(projectId, opts));
   ipcMain.handle("literature:updateMeta", (_e, projectId: string, literatureId: string, patch: { refType?: string; region?: string }) => literature.updateMeta(projectId, literatureId, patch));
   ipcMain.handle("literature:manualAiSearch", (_e, projectId: string, citation: string) => literature.manualAiSearch(projectId, citation));
+  // ReAct 检索三步
+  ipcMain.handle("react:planKeywords", (_e, projectId: string) => reactSearch.planKeywords(projectId));
+  ipcMain.handle("react:executeSearch", (_e, projectId: string, plan: unknown, opts: { cn: number; en: number; excludeDois?: string[] }) =>
+    reactSearch.executeSearch(projectId, plan as Parameters<ReactSearchService["executeSearch"]>[1], opts));
+  ipcMain.handle("react:verifyResults", (_e, projectId: string, outcome: unknown) =>
+    reactSearch.verifyResults(projectId, outcome as Parameters<ReactSearchService["verifyResults"]>[1]));
   ipcMain.handle("literature:lookupDoi", (_e, doi: string) => literature.lookupDoi(doi));
   ipcMain.handle("literature:save", (_e, projectId: string, input: LiteratureInput, opts: { note?: string; manuallyVerified?: boolean }) => literature.saveItem(projectId, input, opts ?? {}));
   ipcMain.handle("literature:verifyManual", (_e, id: string, note: string) => literature.verifyManual(id, note));

@@ -24,6 +24,8 @@ export interface LiteratureItem {
   refType: RefTypeKey;
   /** 国内外区分（按作者单位与出版地判定；题名语言仅初判） */
   region: RegionKey;
+  /** 文献语言，与作者单位/出版地的国内外归属分别保存。 */
+  language?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -56,6 +58,30 @@ export interface SearchOutcome {
   status: "ok" | "no_results" | "error";
   message: string;
   items: Array<Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt">>;
+}
+
+export interface AutoSearchOptions {
+  total?: number; cn?: number; en?: number;
+  excludeDois?: string[]; excludeTitles?: string[]; preferredPlatforms?: string[];
+  openAccessOnly?: boolean; globalLibraries?: boolean;
+  /** 用户提供的英文概念（分号分隔），用于词典未覆盖的主题。 */
+  englishKeywords?: string;
+}
+export type SearchCandidate = SearchOutcome["items"][number] & {
+  level?: string; citedBy?: number; isOa?: boolean; relevanceReason?: string;
+  evidenceLimited?: boolean; origins?: string[];
+};
+export interface SearchDiagnostic {
+  source: string; query: string; page: number; status: "ok" | "no_results" | "error";
+  raw: number; accepted: number; message: string;
+}
+export interface AutoSearchResult {
+  ok: boolean; message: string; searchId: string; queryUsed: string[]; results: SearchCandidate[];
+  related: SearchCandidate[]; diagnostics: SearchDiagnostic[]; warnings: string[]; stopReason: string;
+  counts: { cnRequested: number; enRequested: number; cnFound: number; enFound: number };
+  cnNote: string; preferredLinks: Array<{ key: string; name: string; url: string }>;
+  backgroundLinks: Array<{ name: string; url: string }>;
+  cnJumpLinks: Array<{ name: string; url: string; query: string }>;
 }
 
 /** 国内平台：只提供官方入口与可复制检索式，人工核验记录，不虚构 API */
@@ -188,9 +214,9 @@ export const MAJOR_PLATFORM_GROUPS: Array<{ title: string; items: PlatformEntry[
 
 /** 按题名/出版地语言初判国内外（作者单位与出版地需人工复核，本判断只是初判） */
 export function guessRegion(title: string, venue: string): RegionKey {
-  const text = (title ?? "") + (venue ?? "");
-  if (!text.trim()) return "unknown";
-  return /[\u4e00-\u9fa5]/.test(text) ? "domestic" : "foreign";
+  // 语言不能证明作者单位和出版地；保留接口兼容，等待人工确认。
+  void title; void venue;
+  return "unknown";
 }
 
 /** Crossref 作品类型 → 参考文献形式 */

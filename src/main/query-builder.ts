@@ -16,7 +16,7 @@ export interface ForeignQueryResolver {
 /** 词典硬匹配：中文关键词 → 英文术语，多词引号短语 + AND 组合（提升精度） */
 export function dictionaryBooleanQuery(cnKeywords: string[]): string | null {
   const terms = (cnKeywords ?? []).map((k) => String(k).trim()).filter(Boolean);
-  const translated = terms.map((k) => CN_EN_TERM_DICT[k] ?? null).filter((t): t is string => Boolean(t));
+  const translated = terms.map((k) => CN_EN_TERM_DICT[k] ?? (!/[\u3400-\u9fff]/.test(k) && /[a-z]/i.test(k) ? k : null)).filter((t): t is string => Boolean(t));
   if (translated.length === 0) return null;
   const unique = [...new Set(translated)];
   const quoted = unique.map((t) => (t.includes(" ") ? "\"" + t + "\"" : t));
@@ -26,7 +26,7 @@ export function dictionaryBooleanQuery(cnKeywords: string[]): string | null {
 /** 校验模型输出的布尔检索式：拒绝句子翻译（系动词/论文套话特征），保留检索式特征 */
 export function sanitizeBooleanQuery(raw: string): string | null {
   const cleaned = raw.trim().replace(/[。．；，,]/g, " ").replace(/\s+/g, " ").slice(0, 200);
-  if (!/[a-zA-Z]{2,}/.test(cleaned)) return null;
+  if (!/[a-zA-Z]{2,}/.test(cleaned) || /[\u3400-\u9fff]/.test(cleaned)) return null;
   // 句子翻译特征（自然语言系动词/论文套话）一律拒绝，只保留检索式
   const looksLikeSentence = /\b(the|is|are|was|were|study|research|this|paper|will|can|should|studies|examines)\b/i.test(cleaned);
   if (looksLikeSentence) return null;
@@ -46,10 +46,10 @@ export async function modelBooleanQuery(resolver: ForeignQueryResolver, cnKeywor
 /** 组合入口：词典硬匹配为基底；模型输出为精化（含布尔连接词才采纳，否则词典优先） */
 export async function buildForeignQuery(cnKeywords: string[], resolver: ForeignQueryResolver | null): Promise<{ query: string; source: "dictionary" | "model" | "hybrid" } | null> {
   const base = dictionaryBooleanQuery(cnKeywords);
-  if (!base) return null;
-  if (!resolver) return { query: base, source: "dictionary" };
+  if (!resolver) return base ? { query: base, source: "dictionary" } : null;
   const modelQuery = await modelBooleanQuery(resolver, cnKeywords);
-  if (!modelQuery) return { query: base, source: "dictionary" };
+  if (!modelQuery) return base ? { query: base, source: "dictionary" } : null;
+  if (!base) return { query: modelQuery, source: "model" };
   // 大写布尔连接词才算模型布尔检索式（小写 and/or 可能是自然语言残留）
   if (/\b(AND|OR|NOT)\b/.test(modelQuery)) {
     return { query: modelQuery, source: "model" };

@@ -31,6 +31,8 @@ function SEGMENT_TERMS(text: string): string[] {
 
 /** 核心词分类：主体词（自变量域）/ 结果词（因变量域，必选）/ 变量词（中介等） */
 export interface TermClassification {
+  object?: string[];
+  english?: Record<string, string>;
   subject: string[];
   result: string[];
   mediator: string[];
@@ -64,29 +66,33 @@ export function classifyTerms(topicText: string, variablesJson: string, segmente
   try {
     const v = JSON.parse(variablesJson ?? "{}") as Record<string, string[]>;
     // 变量值也做词典切词（如「AI虚拟主播直播互动性」→「AI虚拟主播」「互动性」）
-    const flat = (arr: string[] | undefined) => (arr ?? []).flatMap((s) => {
+    const flat = (arr: string[] | undefined) => (Array.isArray(arr) ? arr : []).flatMap((s) => {
       const t = String(s).trim();
       if (!t) return [];
       const seg = SEGMENT_TERMS(t);
-      return seg.length > 0 ? seg : [t];
+      return [t, ...seg];
     });
-    subject = [...flat(v.iv), ...flat(v.custom)].filter((t) => !isResultWord(t));
+    subject = [...flat(v.iv), ...flat(v.custom)];
     result = flat(v.dv);
     mediator = flat(v.mediator);
     const misplaced = subject.filter((t) => isResultWord(t));
     subject = subject.filter((t) => !isResultWord(t));
     result = [...result, ...misplaced];
   } catch { /* 无变量 JSON */ }
-  if (subject.length === 0 || result.length === 0) {
-    for (const t of segmented) {
-      if (result.length === 0 && isResultWord(t)) result.push(t);
-      else if (!isResultWord(t)) subject.push(t);
-      else result.push(t);
-    }
-  }
-  void topicText;
+  const all = [...new Set([...segmented, ...SEGMENT_TERMS(topicText)])];
+  const generic = new Set(["消费者", "大学生", "员工", "影响因素", "实证研究", "中介效应", "调节效应", "结构方程模型"]);
+  const topicLead = String(topicText ?? "").split(/[；;\n]/)[0]?.split(/的|对|与|研究|影响/)[0]?.trim() ?? "";
+  // 只把中文短句当作单一研究对象；英文/纯空格关键词串按词切分，避免整串被当成必中的短语。
+  const isCjkLead = /[\u3400-\u9fff]/.test(topicLead);
+  const object = [...new Set([
+    ...SEGMENT_TERMS(topicLead),
+    ...(isCjkLead && topicLead.length >= 2 && topicLead.length <= 60 ? [topicLead] : []),
+  ])].filter(t => !isResultWord(t) && !generic.has(t) && !mediator.includes(t));
+  if (result.length === 0) result = all.filter(isResultWord);
+  if (subject.length === 0) subject = all.filter(t => !isResultWord(t) && !generic.has(t) && !mediator.includes(t));
   return {
-    subject: [...new Set(subject)].slice(0, 3),
+    object: [...new Set(object)].slice(0, 3),
+    subject: [...new Set(subject)].slice(0, 6),
     result: [...new Set(result)].slice(0, 3),
     mediator: [...new Set(mediator)].slice(0, 2),
     subjectExpansions: [...new Set(subject.flatMap(expandSubject))],
@@ -105,93 +111,68 @@ export interface PlannedQuery {
   citeNote: string;
 }
 
-/** 分层扩容（熔断：L0-L3 共 4 级，禁止继续放宽） */
+/** 中英文对译：含 AI 的中文仍须对译。 */
+export function englishTerm(term: string, cls?: TermClassification): string {
+  const direct = cls?.english?.[term] ?? CN_EN_TERM_DICT[term];
+  if (direct) return direct;
+  if (!/[\u3400-\u9fff]/.test(term) && /[a-z]/i.test(term)) return term;
+  const parts = SEGMENT_TERMS(term).map(t => CN_EN_TERM_DICT[t]).filter(Boolean);
+  return [...new Set(parts)].join(' ');
+}
+export function conceptAliases(terms: string[], lang: 'zh' | 'en', cls: TermClassification): string[] {
+  return [...new Set(terms.flatMap(t => [t, ...expandSubject(t)]).map(t => lang === 'zh' ? t : englishTerm(t, cls)).filter(Boolean))];
+}
+/** 各层保留对象，仅去除可选属性和中介。 */
 export function planLevels(cls: TermClassification): PlannedQuery[] {
-  const enOf = (t: string): string => {
-    if (/[a-zA-Z]{2,}/.test(t)) return t;
-    return CN_EN_TERM_DICT[t] ?? (ACADEMIC_SYNONYMS[t]?.[0] ? CN_EN_TERM_DICT[ACADEMIC_SYNONYMS[t][0]] ?? "" : "");
+  const anchor = cls.object?.length ? cls.object : cls.subject;
+  const group = (terms: string[], lang: 'zh' | 'en', expand = true) => {
+    const aliases = expand ? conceptAliases(terms, lang, cls).slice(0, 6) : terms.map(t => lang === 'zh' ? t : englishTerm(t, cls)).filter(Boolean);
+    const quoted = [...new Set(aliases)].map(t => '"' + t.replace(/"/g, '') + '"');
+    return quoted.length > 1 ? '(' + quoted.join(' OR ') + ')' : quoted[0] ?? '';
   };
-  const cnAnd = (terms: string[]) => terms.filter(Boolean).join(" AND ");
-  const enTerm = (t: string): string => (t.includes(" ") ? "\"" + t + "\"" : t);
-  // OR 组作为一个整体（括号包裹），再与其余词 AND
-  const enAnd = (terms: string[]) => terms.filter(Boolean).map((t) => (t.includes(" OR ") ? "(" + t.split(" OR ").map(enTerm).join(" OR ") + ")" : enTerm(t))).join(" AND ");
-  const subjectEn = [...new Set(cls.subject.map(enOf).filter(Boolean))];
-  const resultEn = [...new Set(cls.result.map(enOf).filter(Boolean))];
-  const mediatorEn = [...new Set(cls.mediator.map(enOf).filter(Boolean))];
-  const plans: PlannedQuery[] = [];
-  plans.push({
-    level: "L0",
-    constraint: "主体词 AND 结果词 AND 变量词 全部命中",
-    cnQuery: cnAnd([...cls.subject, ...cls.result, ...cls.mediator]),
-    enQuery: enAnd([...subjectEn, ...resultEn, ...mediatorEn]) || null,
-    countAsCore: true,
-    citeNote: "核心文献·核心变量研究，正常引用",
+  const make = (level: QueryLevel, extra: string[]): PlannedQuery => {
+    const query = (lang: 'zh' | 'en') => {
+      if (lang === 'en' && (!anchor.every(t => englishTerm(t, cls)) || (cls.result.length > 0 && !cls.result.every(t => englishTerm(t, cls))))) return null;
+      return [group(anchor, lang, level === 'L2'), group(cls.result, lang, level === 'L2'), ...extra.map(t => group([t], lang, false))].filter(Boolean).join(' AND ') || null;
+    };
+    return {level, constraint:'保留研究对象和结果，逐层去除可选条件', cnQuery:query('zh'), enQuery:query('en'), countAsCore:true, citeNote:'主题候选，仍需阅读核验'};
+  };
+  const attrs = cls.object?.length ? cls.subject.filter(t => !anchor.includes(t)).slice(0, 1) : [];
+  const theoryZh = ['理论模型', '实证研究', '机制', '方法'];
+  const theoryEn = ['theoretical model', 'empirical study', 'mechanism', 'method'];
+  const l3Query = (lang: 'zh' | 'en') => {
+    const theory = lang === 'zh' ? theoryZh : theoryEn;
+    const result = cls.result.map(t => lang === 'zh' ? t : englishTerm(t, cls)).filter(Boolean);
+    return '(' + theory.map(t => '"' + t + '"').join(' OR ') + ') AND ' + result.map(t => '"' + t + '"').join(' AND ');
+  };
+  return [
+    make('L0', [...attrs, ...cls.mediator.slice(0, 1)]),
+    make('L1', []),
+    make('L2', []),
+    { level: 'L3', constraint: '理论/机制/方法补充，结果词仍需命中', cnQuery: l3Query('zh'), enQuery: l3Query('en'), countAsCore: false, citeNote: '理论/方法参考，独立展示，不计核心配额' },
+  ];
+}
+/** 仅概念词面命中，不是语义概率。支持英文复数和连字符。 */
+export function matchConcept(text: string, terms: string[], lang: 'zh' | 'en', cls: TermClassification): boolean {
+  const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const hay = ' ' + normalize(text) + ' ';
+  return conceptAliases(terms, lang, cls).some(term => {
+    if (lang === 'zh' && /[\u3400-\u9fff]/.test(term)) return text.toLowerCase().includes(term.toLowerCase());
+    const words = normalize(term).split(' ').filter(Boolean);
+    if (!words.length) return false;
+    const pattern = words.map(w => w + '(?:s|es)?').join('\\s+');
+    return new RegExp('(?:^|\\s)' + pattern + '(?=\\s|$)', 'i').test(hay);
   });
-  plans.push({
-    level: "L1",
-    constraint: "主体词 AND 结果词 必中（去变量词）",
-    cnQuery: cnAnd([...cls.subject, ...cls.result]),
-    enQuery: enAnd([...subjectEn, ...resultEn]) || null,
-    countAsCore: true,
-    citeNote: "核心文献·核心变量研究，可正常引用",
-  });
-  if (cls.subjectExpansions.length > 0) {
-    plans.push({
-      level: "L2",
-      constraint: "主体同义词扩展 AND 结果词 必中（禁止放宽主体为泛词）",
-      cnQuery: cnAnd([cls.subjectExpansions.join(" OR "), ...cls.result]),
-      enQuery: enAnd([cls.subjectExpansions.map(enOf).filter(Boolean).join(" OR "), ...resultEn]) || null,
-      countAsCore: true,
-      citeNote: "1/2级扩容·同概念不同表述，可正常引用",
-    });
-  }
-  if (cls.result.length > 0) {
-    // L3 理论补充：通用理论/机制词 + 结果词（不再硬编码任何具体领域，防止跨域跑偏）
-    plans.push({
-      level: "L3",
-      constraint: "同理论场景补充（通用理论/机制词 AND 结果词）",
-      cnQuery: cnAnd(["影响机制 OR 理论模型 OR 实证研究", ...cls.result]),
-      enQuery: enAnd(["influencing mechanism OR theoretical model OR empirical study", ...resultEn]) || null,
-      countAsCore: false,
-      citeNote: "理论补充文献·支撑模型合理性，不计入核心配额",
-    });
-  }
-  return plans;
+}
+export function hardFilterPass(text: string, cls: TermClassification, lang: 'zh' | 'en', level?: string): boolean {
+  const anchor = cls.object?.length ? cls.object : cls.subject;
+  const resultHit = cls.result.length === 0 || matchConcept(text, cls.result, lang, cls);
+  if (level === 'L3') return resultHit && matchConcept(text, ['理论模型', '模型', '机制', '方法', '实证研究', 'theoretical model', 'empirical study', 'mechanism', 'method', 'mediation'], lang, cls);
+  return matchConcept(text, anchor, lang, cls) && resultHit;
 }
 
-/** ===== P1 第一层：规则硬过滤（毫秒级）=====
- *  标题必须同时命中「主体类词」和「结果类词」至少各一个（中英文分别判定）。 */
-const RE_ESCAPE = /[.*+?^$\x7b\x7d()|[\]\\]/g;
-export function hardFilterPass(title: string, cls: TermClassification, lang: "zh" | "en", level?: string): boolean {
-  if (level === "L3") {
-    // L3 理论补充：主体范围放宽为同理论场景词（结果词仍必中），不计核心配额
-    const sceneZh = ["直播电商", "电商直播", "电子商务", "直播带货"];
-    const sceneEn = ["live streaming", "e-commerce", "live commerce", "livestream"];
-    const scene = lang === "zh" ? sceneZh : sceneEn;
-    const result = lang === "zh" ? [...cls.result, ...cls.resultExpansions] : [...cls.result, ...cls.resultExpansions].map((x) => CN_EN_TERM_DICT[x] ?? x).map((x) => x.toLowerCase());
-    const t = String(title ?? "");
-    const hitScene = lang === "zh" ? scene.some((s) => t.includes(s)) : scene.some((s) => t.toLowerCase().includes(s));
-    const hitResult = result.length === 0 ? true : result.some((r) => (lang === "zh" ? t.includes(r) : t.toLowerCase().includes(r)));
-    return hitScene && hitResult;
-  }
-  const t = String(title ?? "");
-  const mapEn = (x: string) => (CN_EN_TERM_DICT[x] ?? x).toLowerCase();
-  const subjectTerms = lang === "zh" ? [...cls.subject, ...cls.subjectExpansions] : [...cls.subject, ...cls.subjectExpansions].map(mapEn);
-  const resultTerms = lang === "zh" ? [...cls.result, ...cls.resultExpansions] : [...cls.result, ...cls.resultExpansions].map(mapEn);
-  const hit = (terms: string[]): boolean => {
-    if (lang === "zh") return terms.some((term) => t.includes(term));
-    const lower = t.toLowerCase();
-    return terms.some((term) => {
-      if (term.includes(" ")) return lower.includes(term);
-      return new RegExp("\\b" + term.replace(RE_ESCAPE, "\\$&") + "\\b", "i").test(lower);
-    });
-  };
-  if (resultTerms.length === 0) return hit(subjectTerms);
-  return hit(subjectTerms) && hit(resultTerms);
-}
-
-/** ===== P1 第二层：轻量语义相似度（本地纯 TS 字符 n-gram 余弦，零依赖、毫秒级）
- *  ===== 注：bge-small-zh ONNX 需原生运行时，暂以 n-gram 余弦近似（预留模型接入扩展口） */
+/** ===== P1 第二层：字符 n-gram 余弦相似度（本地纯 TS，零依赖、毫秒级）
+ *  ===== 仅作初步排序/过滤，不是语义判定；真正的语义相关度需阅读核验或接入语义模型 */
 export function ngramSimilarity(a: string, b: string, n = 2): number {
   const build = (text: string): Map<string, number> => {
     const s = String(text ?? "").toLowerCase().replace(/[^\u4e00-\u9fa5a-z0-9]/g, "");
@@ -214,12 +195,12 @@ export function ngramSimilarity(a: string, b: string, n = 2): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-/** 第二层过滤阈值（中文语义场景 0.6；外文池与短文本场景 0.35，阈值可调） */
+/** 第二层过滤阈值（字符 n-gram 初筛；中文 0.6，外文/短文本 0.3，阈值可调） */
 export const SIMILARITY_THRESHOLD = 0.6;
 export const SIMILARITY_THRESHOLD_EN = 0.3;
 
 /** ===== P2：多维权重评分 =====
- *  相关度 60%（语义相似度 40 + 命中位置 20） + 质量 30%（核心期刊 > 普刊） + 引用 10%（仅参考） */
+ *  相关度 60%（字符相似度 40 + 命中位置 20） + 质量 30%（核心期刊 > 普刊） + 引用 10%（仅参考） */
 export function compositeScore(item: {
   similarity: number;
   subjectHitInTitle: boolean;

@@ -155,4 +155,34 @@ describe("文献库持久化（SQLite）", () => {
     expect(db.listLiterature(project.project.id).length).toBe(0);
     db.close();
   });
+
+  it("语言与国内外归属分开保存并往返一致", () => {
+    const db = new ThesisDB(dbPath);
+    const item = db.insertLiterature({
+      projectId: "p1",
+      title: "AI虚拟主播互动质量对消费者购买意愿的影响",
+      authors: "王明",
+      year: "2024",
+      venue: "经济与管理",
+      doi: "10.1000/oa2",
+      url: "",
+      abstract: "",
+      source: "openalex",
+      verifiedStatus: "verified",
+      verifiedNote: "",
+      fulltextStatus: "none",
+      pdfName: "",
+      preprint: false,
+      language: "zh",
+      region: "unknown",
+    });
+    const loaded = db.listLiterature("p1")[0];
+    expect(loaded.language).toBe("zh");
+    expect(loaded.region).toBe("unknown");
+    db.updateLiterature(item.id, { region: "domestic" });
+    const updated = db.listLiterature("p1")[0];
+    expect(updated.region).toBe("domestic");
+    expect(updated.language).toBe("zh");
+    db.close();
+  });
 });

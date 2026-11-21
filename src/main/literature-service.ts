@@ -14,7 +14,7 @@ import { buildForeignQuery, type ForeignQueryResolver } from "./query-builder";
 import { classifyTerms, compositeScore, hardFilterPass, ngramSimilarity, planLevels, SIMILARITY_THRESHOLD_EN } from "./query-planner";
 import type { EvidenceCard, LiteratureItem, LiteratureSource, SearchLogEntry, SearchOutcome } from "../shared/literature";
 
-export type LiteratureInput = Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt" | "refType" | "region"> & Partial<Pick<LiteratureItem, "refType" | "region">>;
+export type LiteratureInput = Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt" | "refType" | "region" | "language"> & Partial<Pick<LiteratureItem, "refType" | "region" | "language">>;
 
 export interface SaveOutcome {
   saved: boolean;
@@ -124,9 +124,9 @@ export class LiteratureService {
    *  中文池：不再用外文平台当主检索源；生成带必选词约束的检索式 → 中文平台（百度学术/知网/万方/维普/NSSD）跳转检索，
    *           中文文献由用户在中文平台检索后导入本库（合规：不爬取中文闭源平台）。
    *  外文池：OpenAlex + Crossref 真实检索，L0-L2 分级扩容、L3 理论补充（不计核心配额）；
-   *           结果过两道过滤闸（规则硬过滤 + 本地轻量语义相似度），再按多维权重排序。
+   *           结果过两道过滤闸（规则硬过滤 + 字符 n-gram 初筛，非语义判定），再按多维权重排序。
    *  真实不足如实报告缺口，绝不编造、绝不硬塞。 */
-  async autoSearch(projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[]; preferredPlatforms?: string[]; openAccessOnly?: boolean; globalLibraries?: boolean }): Promise<{
+  async autoSearch(projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[]; excludeTitles?: string[]; preferredPlatforms?: string[]; openAccessOnly?: boolean; globalLibraries?: boolean; englishKeywords?: string }): Promise<{
     ok: boolean;
     message: string;
     queryUsed: string[];
@@ -137,22 +137,30 @@ export class LiteratureService {
     backgroundLinks?: Array<{ name: string; url: string }>;
     cnJumpLinks?: Array<{ name: string; url: string; query: string }>;
   }> {
-    const total = Math.min(30, Math.max(15, opts?.total ?? 15));
-    const cnRequested = Math.min(total, Math.max(0, opts?.cn ?? 0));
-    const enRequested = total - cnRequested;
+    const total = Math.min(30, Math.max(15, Math.trunc(opts?.total ?? 15)));
+    const cnRequested = Math.min(total, Math.max(0, Math.trunc(opts?.cn ?? 0)));
+    const requestedEn = opts?.en === undefined ? total - cnRequested : Math.max(0, Math.trunc(opts.en));
+    const enRequested = Math.min(total - cnRequested, requestedEn);
     const exclude = new Set((opts?.excludeDois ?? []).map((d) => d.trim()).filter(Boolean));
+    const excludeTitles = new Set((opts?.excludeTitles ?? []).map(normalizeTitle).filter(Boolean));
     const detail = this.db.getProjectDetail(projectId);
     const topic = detail.content["topic"] ?? {};
     const design = detail.content["design"] ?? {};
+    const writing = detail.content["writing"] ?? {};
     const direction = String(topic["direction"] ?? "").trim();
+    const confirmedTitle = String(writing["title"] ?? topic["title"] ?? "").trim();
     const candidatesField = String(topic["candidates"] ?? "").trim();
+    const question = String(topic["question"] ?? design["question"] ?? "").trim();
     const abstract = String(design["abstract"] ?? "").trim();
-    const variablesJson = String(topic["variables"] ?? "").trim();
-    const topicText = [direction, candidatesField, abstract].filter(Boolean).join(" ");
+    const keywords = String(writing["keywords"] ?? "").trim();
+    const hypotheses = this.db.listHypotheses(projectId);
+    const hypothesisText = hypotheses.map((h) => [h.statement, h.iv, h.dv].filter(Boolean).join(" ")).join(" ");
+    const variablesJson = String(topic["variables"] ?? design["variables"] ?? "").trim();
+    const topicText = [confirmedTitle, direction, question, candidatesField, abstract, hypothesisText, keywords].filter(Boolean).join(" ");
 
     // 关键词切词 + 主体/结果词分类（变量优先，词典兜底）
     const cnKeywords: string[] = [];
-    for (const text of [direction, candidatesField, abstract]) {
+    for (const text of [confirmedTitle, direction, question, candidatesField, abstract, hypothesisText, keywords]) {
       for (const k of segmentKeywords(text)) if (!cnKeywords.includes(k)) cnKeywords.push(k);
     }
     const clsBase = classifyTerms(topicText, variablesJson, cnKeywords);
@@ -189,7 +197,7 @@ export class LiteratureService {
     const pushUnique = (item: SearchOutcome["items"][number], level: string, citedBy: number, query: string) => {
       const key = item.doi || (item.title + "|" + item.authors);
       const normTitle = normalizeTitle(item.title);
-      if (!key || seenKeys.has(key) || (normTitle && seenTitles.has(normTitle)) || exclude.has(item.doi)) return;
+      if (!key || seenKeys.has(key) || (normTitle && seenTitles.has(normTitle)) || exclude.has(item.doi) || (normTitle && excludeTitles.has(normTitle))) return;
       seenKeys.add(key);
       if (normTitle) seenTitles.add(normTitle);
       rawPool.push({ ...item, level, citedBy, queryText: query });
@@ -211,12 +219,18 @@ export class LiteratureService {
         if (cr.status === "fulfilled" && cr.value.status !== "error") {
           for (const item of cr.value.items) pushUnique(item, level, Number((item as { citedBy?: number }).citedBy ?? 0), query);
         }
-        this.db.appendSearchLog(projectId, "crossref+openalex", query, rawPool.length, "ok", "双池自动检索（外文池）");
-      } catch { /* 单源失败不阻塞 */ }
+        if (oa.status === "rejected") this.db.appendSearchLog(projectId, "openalex", query, 0, "error", String(oa.reason instanceof Error ? oa.reason.message : oa.reason));
+        else if (oa.value.status === "error") this.db.appendSearchLog(projectId, "openalex", query, 0, "error", oa.value.message);
+        else this.db.appendSearchLog(projectId, "openalex", query, oa.value.items.length, oa.value.status, "外文池真实检索");
+        if (cr.status === "rejected") this.db.appendSearchLog(projectId, "crossref", query, 0, "error", String(cr.reason instanceof Error ? cr.reason.message : cr.reason));
+        else if (cr.value.status === "error") this.db.appendSearchLog(projectId, "crossref", query, 0, "error", cr.value.message);
+        else this.db.appendSearchLog(projectId, "crossref", query, cr.value.items.length, cr.value.status, "外文池真实检索");
+      } catch (error) {
+        this.db.appendSearchLog(projectId, "crossref+openalex", query, 0, "error", error instanceof Error ? error.message : String(error));
+      }
     };
 
     for (const p of plans) {
-      if (rawPool.length >= enRequested + 8) break;
       let enQ = p.enQuery;
       if (!enQ) {
         // 词典缺英文对应词时：词典硬匹配 + 可插拔模型布尔检索式兜底
@@ -239,7 +253,7 @@ export class LiteratureService {
               },
             }
           : null;
-        const built = await buildForeignQuery([...cls.subject, ...cls.result], resolver);
+        const built = await buildForeignQuery([...cls.object ?? [], ...cls.subject, ...cls.result], resolver);
         if (built) enQ = built.query;
       }
       if (!enQ) continue;
@@ -258,7 +272,6 @@ export class LiteratureService {
     const cnRaw: Array<SearchOutcome["items"][number] & { level: string; citedBy?: number }> = [];
     if (cnRequested > 0) {
       for (const cq of cnQueryList) {
-        if (cnRaw.length >= cnRequested + 8) break;
         used.push(cq.q);
         const oaQ = cq.q.replace(/\s*AND\s*/g, " ").replace(/\s*OR\s*/g, " ");
         try {
@@ -272,8 +285,10 @@ export class LiteratureService {
             if (normTitle) seenTitles.add(normTitle);
             cnRaw.push({ ...item, level: cq.level, citedBy: Number(typed.citedBy ?? 0) });
           }
-          this.db.appendSearchLog(projectId, "openalex-zh", cq.q, cnRaw.length, "ok", "中文池自动检索（补充发现）");
-        } catch { /* 单源失败不阻塞 */ }
+          this.db.appendSearchLog(projectId, "openalex-zh", cq.q, outcome.items.length, outcome.status, "中文池自动检索（补充发现）");
+        } catch (error) {
+          this.db.appendSearchLog(projectId, "openalex-zh", cq.q, 0, "error", error instanceof Error ? error.message : String(error));
+        }
       }
     }
 
@@ -283,7 +298,7 @@ export class LiteratureService {
     let simDropped = 0;
     for (const item of rawPool) {
       if (!hardFilterPass(item.title, cls, "en", item.level)) { hardDropped++; continue; }
-      const sim = ngramSimilarity(item.title + " " + item.abstract, (item as typeof item & { queryText?: string }).queryText ?? topicText);
+      const sim = ngramSimilarity(item.title + " " + item.abstract, topicText);
       if (sim < SIMILARITY_THRESHOLD_EN) { simDropped++; continue; }
       (item as typeof item & { similarity: number }).similarity = sim;
       filtered.push(item);
@@ -335,7 +350,7 @@ export class LiteratureService {
     });
 
     const counts = { cnRequested, enRequested, cnFound, enFound };
-    const cnNote = "国内自动检索为 OpenAlex 中文子集「补充发现」（已过必选词硬过滤与相似度过滤，缺 " + Math.max(0, cnRequested - cnFound) + " 篇未硬凑）；权威中文库（知网/万方/维普/NSSD）请用下方跳转检索后导入本库，导入后计入国内配额";
+    const cnNote = "中文自动检索为 OpenAlex 中文子集「补充发现」（已过必选词硬过滤与字符相似度初筛，缺 " + Math.max(0, cnRequested - cnFound) + " 篇未硬凑）；语言为「中文」不等于国内文献，国内外归属需人工确认作者单位与出版地。权威中文库（知网/万方/维普/NSSD）请用下方跳转检索后导入本库，导入后计入中文配额";
 
     // 偏好平台跳转（偏向，非绝对）
     const preferredLinks: Array<{ key: string; name: string; url: string }> = [];
@@ -358,9 +373,9 @@ export class LiteratureService {
       { name: "行业报告·QuestMobile", url: "https://www.questmobile.com.cn/search?keyword=" + bgQ },
     ];
 
-    const filterNote = hardDropped + simDropped + cnHardDropped + cnSimDropped > 0 ? "；已过两道过滤闸：规则剔除 " + (hardDropped + cnHardDropped) + " 篇、语义相似度剔除 " + (simDropped + cnSimDropped) + " 篇" : "";
+    const filterNote = hardDropped + simDropped + cnHardDropped + cnSimDropped > 0 ? "；已过两道过滤闸：规则剔除 " + (hardDropped + cnHardDropped) + " 篇、字符 n-gram 初筛剔除 " + (simDropped + cnSimDropped) + " 篇（非语义判定）" : "";
     const levelNote = theoryPool.length > 0 ? "；L3 理论补充文献不计入核心配额（已标注）" : "";
-    const parts: string[] = ["双池检索完成：国内 " + cnFound + "/" + cnRequested + "（OpenAlex 中文子集补充发现）、国外 " + enFound + "/" + enRequested + levelNote + filterNote];
+    const parts: string[] = ["双池检索完成：中文 " + cnFound + "/" + cnRequested + "（OpenAlex 中文子集补充发现）、外文 " + enFound + "/" + enRequested + levelNote + filterNote];
     if (results.length === 0) {
       return { ok: false, message: parts.join("，") + "（真实检索 0 条）", queryUsed: used, results, counts, cnNote, preferredLinks, backgroundLinks, cnJumpLinks };
     }
@@ -446,6 +461,7 @@ export class LiteratureService {
       preprint: !!input.preprint,
       refType: input.refType ?? "other",
       region: input.region ?? "unknown",
+      language: input.language ?? "",
     });
     return { saved: true, item: saved, message: "已保存" };
   }
@@ -510,3 +526,5 @@ export class LiteratureService {
     }
   }
 }
+
+export { extractJson as extractJsonSafe } from "./stage4-service";

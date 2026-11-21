@@ -34,6 +34,11 @@ const api = {
     ipcRenderer.invoke("literature:updateMeta", projectId, literatureId, patch),
   literatureManualAiSearch: (projectId: string, citation: string): Promise<{ ok: boolean; message: string; queryUsed: string; results: SearchOutcome["items"] }> =>
     ipcRenderer.invoke("literature:manualAiSearch", projectId, citation),
+  reactPlanKeywords: (projectId: string): Promise<unknown> => ipcRenderer.invoke("react:planKeywords", projectId),
+  reactExecuteSearch: (projectId: string, plan: unknown, opts: { cn: number; en: number; excludeDois?: string[] }): Promise<unknown> =>
+    ipcRenderer.invoke("react:executeSearch", projectId, plan, opts),
+  reactVerifyResults: (projectId: string, outcome: unknown): Promise<{ verifyNote: string; pass: boolean }> =>
+    ipcRenderer.invoke("react:verifyResults", projectId, outcome),
   literatureLookupDoi: (doi: string): Promise<{ found: boolean; message: string; item?: SearchOutcome["items"][number] }> =>
     ipcRenderer.invoke("literature:lookupDoi", doi),
   literatureSave: (projectId: string, input: unknown, opts: { note?: string; manuallyVerified?: boolean }) =>

@@ -17,6 +17,8 @@ const SOURCES = [
 
 const SOURCE_STATUS_LABEL: Record<string, string> = { ok: "返回结果", no_results: "无结果", error: "失败" };
 
+const LANG_LABEL: Record<string, string> = { zh: "中文", en: "外文" };
+
 export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const projectId = detail.project.id;
   const [items, setItems] = useState<LiteratureItem[]>([]);
@@ -57,6 +59,11 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     } catch { /* 忽略 */ }
     return { platformKeys: [], openAccessOnly: false, globalLibraries: false };
   });
+  const [keywordPlan, setKeywordPlan] = useState<{ subject: string[]; result: string[]; extra: string[]; queries: Array<{ zh: string; en: string | null; label: string; level: string }>; note: string; aiGenerated: boolean } | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [reactBusy, setReactBusy] = useState(false);
+  const [reactOutcome, setReactOutcome] = useState<{ message: string; counts: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; verifyNote: string; needMore: boolean } | null>(null);
+  const [researchedDois, setResearchedDois] = useState<string[]>([]);
   const [prefModalOpen, setPrefModalOpen] = useState(false);
   const [preferredLinks, setPreferredLinks] = useState<Array<{ key: string; name: string; url: string }>>([]);
 
@@ -124,6 +131,57 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     }
   };
 
+  const runPlanKeywords = async () => {
+    const a = api();
+    if (!a || planBusy) return;
+    setPlanBusy(true);
+    setError("");
+    try {
+      const plan = await a.reactPlanKeywords(projectId);
+      setKeywordPlan(plan);
+      setMessage("关键词方案已生成（" + (plan.aiGenerated ? "AI 三步规划" : "词典确定性生成") + "）。确认后点「② AI 搜寻论文」逐个关键词检索");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  const runReactSearch = async (extraExcludes: string[] = []) => {
+    const a = api();
+    if (!a || reactBusy || !keywordPlan) return;
+    const totalNum = Number(autoTotal);
+    if (!Number.isFinite(totalNum) || totalNum < 15 || totalNum > 30) {
+      setAutoRangeWarn(totalNum > 30 ? "⚠ 最多 30 篇，请将总数调整到 30 以内（15–30）" : "⚠ 建议总数不少于 15 篇（范围 15–30）");
+      if (totalNum > 30) return;
+    } else {
+      setAutoRangeWarn("");
+    }
+    setReactBusy(true);
+    setError("");
+    try {
+      const excludeDois = [
+        ...items.map((i) => i.doi).filter(Boolean),
+        ...autoHistory.flatMap((h) => h.results.map((c) => c.doi).filter(Boolean)),
+        ...researchedDois,
+        ...extraExcludes,
+      ];
+      const r = await a.reactExecuteSearch(projectId, keywordPlan, { cn: Number(autoCn) || 0, en: Math.max(0, totalNum - (Number(autoCn) || 0)), excludeDois });
+      setCandidates(r.results);
+      setOutcomeMeta({ source: "ReAct 逐关键词检索", query: r.queriesUsed.join(" / "), status: "ok", message: r.message, time: new Date().toLocaleTimeString("zh-CN", { hour12: false }) });
+      setAutoHistory((prev) => [{ at: new Date().toLocaleString("zh-CN"), queryUsed: r.queriesUsed, results: r.results, counts: r.counts }, ...prev].slice(0, 5));
+      setResearchedDois((prev) => [...new Set([...prev, ...r.results.map((c) => c.doi).filter(Boolean)])]);
+      const v = await a.reactVerifyResults(projectId, r);
+      setReactOutcome({ message: r.message, counts: r.counts, verifyNote: v.verifyNote, needMore: r.needMore });
+      setMessage(r.message + "。核验：" + v.verifyNote);
+      void refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReactBusy(false);
+    }
+  };
+
   const runAutoSearch = async () => {
     const a = api();
     if (!a || autoBusy) return;
@@ -137,6 +195,8 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     setAutoBusy(true);
     setError("");
     setPreferredLinks([]);
+    setCandidates([]);
+    setAutoState(null);
     try {
       const excludeDois = [
         ...items.map((i) => i.doi).filter(Boolean),
@@ -156,10 +216,11 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
       if (r.ok) {
         setCandidates(r.results);
         setAutoHistory((prev) => [{ at: new Date().toLocaleString("zh-CN"), queryUsed: r.queryUsed, results: r.results, counts: r.counts }, ...prev].slice(0, 5));
-        setOutcomeMeta({ source: "Crossref（一键自动检索）", query: r.queryUsed.join(" / "), status: "ok", message: r.message, time: new Date().toLocaleTimeString("zh-CN", { hour12: false }) });
+        setOutcomeMeta({ source: "OpenAlex + Crossref（一键自动检索）", query: r.queryUsed.join(" / "), status: "ok", message: r.message, time: new Date().toLocaleTimeString("zh-CN", { hour12: false }) });
         setMessage(r.message + (r.cnNote ? "。注意：" + r.cnNote : ""));
         void refresh();
       } else {
+        setCandidates([]);
         setError(r.message + (r.cnNote ? "。注意：" + r.cnNote : ""));
       }
     } catch (e) {
@@ -329,16 +390,41 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     <div className="literature-panel">
       <section className="card">
         <div className="card-head-row">
-          <h3 className="ai-title">一键自动找文献（基于已确定的选题、变量与摘要）</h3>
-          <button className="btn btn-primary" disabled={autoBusy} onClick={() => void runAutoSearch()}>{autoBusy ? "检索中…" : "自动找文献（含地址）"}</button>
+          <h3 className="ai-title">一键自动找文献（ReAct 三步：优化关键词 → 逐关键词检索 → 核验）</h3>
         </div>
-        <p className="muted">根据「前期检索与选题」「研究问题与设计」里已填的方向、变量与摘要自动推导检索式，直接检索真实 Crossref 数据源；每条文献的地址直接给出，可一键保存入库。再次检索会自动排除已保存与历史推荐的文献，得到不同的结果。</p>
+        <div className="lit-search-row">
+          <button className="btn" disabled={planBusy || reactBusy} onClick={() => void runPlanKeywords()}>{planBusy ? "规划中…" : "① AI 优化关键词"}</button>
+          <button className="btn btn-primary" disabled={reactBusy || !keywordPlan} onClick={() => void runReactSearch()}>{reactBusy ? "检索中…" : "② AI 搜寻论文"}</button>
+          {reactOutcome && (reactOutcome.needMore || /未通过|再次/.test(reactOutcome.verifyNote)) && (
+            <button className="btn" disabled={reactBusy} onClick={() => void runReactSearch([])}>AI 再次查询（已排除上批文献）</button>
+          )}
+        </div>
+        {keywordPlan && (
+          <div className="keyword-plan">
+            <p className="muted">{keywordPlan.note}</p>
+            <div className="lit-suggest">
+              {keywordPlan.subject.map((s) => <span key={"s" + s} className="chip chip-on">主体：{s}</span>)}
+              {keywordPlan.result.map((s) => <span key={"r" + s} className="chip chip-on">结果：{s}</span>)}
+              {keywordPlan.extra.map((s) => <span key={"e" + s} className="chip">背景：{s}</span>)}
+            </div>
+            <div className="muted">逐个检索计划（每次只用一组关键词，不合并搜索框）：{keywordPlan.queries.map((q) => q.label).join("；")}</div>
+            <div className="lit-suggest">
+              {keywordPlan.queries.slice(0, 4).map((q) => (
+                <button key={q.label} className="chip" onClick={() => openUrl("https://xueshu.baidu.com/s?wd=" + encodeURIComponent(q.zh))}>{q.label}（百度学术）</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {reactOutcome && (
+          <p className="banner banner-info">国内 {reactOutcome.counts.cnFound}/{reactOutcome.counts.cnRequested}、国外 {reactOutcome.counts.enFound}/{reactOutcome.counts.enRequested} · 核验：{reactOutcome.verifyNote}</p>
+        )}
+        <p className="muted">根据「前期检索与选题」「研究问题与设计」里已填的方向、变量与摘要自动推导检索式，直接检索真实 OpenAlex 与 Crossref 数据源；每条文献的地址直接给出，可一键保存入库。再次检索会自动排除已保存与历史推荐的文献，得到不同的结果。语言只标记「中文/外文」，国内外归属需人工确认作者单位与出版地。</p>
         <div className="lit-search-row auto-counts-row">
           <label className="row-label">总数</label>
           <input className="input input-num" aria-label="自动检索总数" type="number" min={15} max={30} step={1} value={autoTotal} onChange={(e) => setAutoTotal(Number(e.target.value) || 15)} />
-          <label className="row-label">国内篇数</label>
-          <input className="input input-num" aria-label="国内篇数" type="number" min={0} max={autoTotal} step={1} value={autoCn} onChange={(e) => setAutoCn(Number(e.target.value) || 0)} />
-          <span className="muted">国外自动为 {Math.max(0, Number(autoTotal) - Number(autoCn))} 篇</span>
+          <label className="row-label">中文篇数</label>
+          <input className="input input-num" aria-label="中文篇数" type="number" min={0} max={autoTotal} step={1} value={autoCn} onChange={(e) => setAutoCn(Number(e.target.value) || 0)} />
+          <span className="muted">外文自动为 {Math.max(0, Number(autoTotal) - Number(autoCn))} 篇</span>
           <span className="muted range-hint">总数范围：大于等于 15 篇、小于等于 30 篇</span>
           <button className="btn btn-sm" onClick={() => setPrefModalOpen(true)}>选择偏好论文库{platformPrefs.platformKeys.length > 0 ? "（已选 " + platformPrefs.platformKeys.length + "）" : ""}</button>
         </div>
@@ -380,7 +466,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
             <summary>历史推荐（折叠，共 {autoHistory.length} 批）</summary>
             {autoHistory.map((h, i) => (
               <div key={i} className="auto-history-batch">
-                <div className="muted">{h.at} · 检索式：{h.queryUsed.join("；")}{h.counts ? " · 国内 " + h.counts.cnFound + "/" + h.counts.cnRequested + "，国外 " + h.counts.enFound + "/" + h.counts.enRequested : ""}</div>
+                <div className="muted">{h.at} · 检索式：{h.queryUsed.join("；")}{h.counts ? " · 中文 " + h.counts.cnFound + "/" + h.counts.cnRequested + "，外文 " + h.counts.enFound + "/" + h.counts.enRequested : ""}</div>
                 <ul className="auto-history-list">
                   {h.results.slice(0, 8).map((c) => (
                     <li key={c.doi || c.title}>{c.title}（{c.year}）{c.url && <a href={c.url} onClick={(e) => { e.preventDefault(); openUrl(c.url); }}>打开链接</a>}</li>
@@ -453,6 +539,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
                     {(c as Candidate & { level?: string }).level && (c as Candidate & { level?: string }).level !== "core" && <span className="badge badge-warn">{(c as Candidate & { level?: string }).level === "l1" ? "1级扩容·同概念不同场景" : (c as Candidate & { level?: string }).level === "l2" ? "2级扩容·同理论不同对象" : (c as Candidate & { level?: string }).level}</span>}
                     {(c as Candidate & { refType?: string }).refType && <span className="badge badge-done">{REF_TYPE_LABEL[(c as Candidate & { refType?: string }).refType as string] ?? "其他"}·{REF_TYPE_PRIORITY[(c as Candidate & { refType?: string }).refType as string] ?? "—"}</span>}
                     {(c as Candidate & { region?: string }).region && <span className="badge">{REGION_LABEL[(c as Candidate & { region?: string }).region as "domestic" | "foreign" | "unknown"] ?? "待区分"}</span>}
+                    {(c as Candidate & { language?: string }).language && <span className="badge badge-muted">{LANG_LABEL[(c as Candidate & { language?: string }).language as string] ?? (c as Candidate & { language?: string }).language}</span>}
                     {c.preprint && <span className="badge badge-warn">预印本</span>}
                     {(c as Candidate & { citedBy?: number }).citedBy !== undefined && <span className="badge">被引 {(c as Candidate & { citedBy?: number }).citedBy}</span>}
                   </div>
@@ -505,6 +592,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
                   <div className="lit-title">{c.title}
                     {(c as Candidate & { refType?: string }).refType && <span className="badge badge-done">{REF_TYPE_LABEL[(c as Candidate & { refType?: string }).refType as string] ?? "其他"}</span>}
                     {(c as Candidate & { region?: string }).region && <span className="badge">{REGION_LABEL[(c as Candidate & { region?: string }).region as "domestic" | "foreign" | "unknown"] ?? "待区分"}</span>}
+                    {(c as Candidate & { language?: string }).language && <span className="badge badge-muted">{LANG_LABEL[(c as Candidate & { language?: string }).language as string] ?? (c as Candidate & { language?: string }).language}</span>}
                   </div>
                   <div className="muted">{c.authors}{c.year ? "（" + c.year + "）" : ""}{c.venue ? " · " + c.venue : ""} · DOI: {c.doi || "无"}</div>
                   {c.url && <div className="muted lit-url">来源地址：<a href={c.url} onClick={(e) => { e.preventDefault(); openUrl(c.url); }}>{c.url}</a></div>}
@@ -582,6 +670,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
                     {lit.title}
                     <span className="badge badge-done">{REF_TYPE_LABEL[lit.refType] ?? "其他"}·{REF_TYPE_PRIORITY[lit.refType] ?? "—"}</span>
                     <span className="badge">{REGION_LABEL[lit.region] ?? "待区分"}</span>
+                    {lit.language && <span className="badge badge-muted">{LANG_LABEL[lit.language] ?? lit.language}</span>}
                     {lit.preprint && <span className="badge badge-warn">预印本</span>}
                     <span className={"badge badge-" + (lit.verifiedStatus === "verified" ? "done" : lit.verifiedStatus === "conflict" ? "warn" : "muted")}>{VERIFIED_STATUS_LABEL[lit.verifiedStatus]}</span>
                     <span className="badge">{LITERATURE_SOURCE_LABEL[lit.source]}</span>

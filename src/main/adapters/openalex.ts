@@ -47,7 +47,8 @@ function workToItem(w: Record<string, unknown>) {
     source: "openalex" as const,
     preprint: type === "preprint",
     refType: refTypeFromCrossrefType(type),
-    region: (language === "zh" ? "domestic" : "foreign") as RegionKey,
+    region: "unknown" as RegionKey,
+    language,
     citedBy,
     isOa: Boolean((w.open_access as Record<string, unknown> | undefined)?.is_oa),
   };
@@ -74,7 +75,7 @@ export async function openalexSearch(query: string, opts?: { language?: "zh" | "
     signal: opts?.signal,
   });
   if (!response.ok) throw new Error("OpenAlex 服务返回错误（HTTP " + response.status + "）");
-  const data = (await response.json()) as { results?: Record<string, unknown>[] };
+  const data = (await response.json()) as { results?: Record<string, unknown>[]; meta?: { count?: number } };
   const items = (data.results ?? []).map((w) => workToItem(w)).filter((i) => i.title);
   return {
     source: "openalex",
