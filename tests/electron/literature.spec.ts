@@ -147,7 +147,7 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.getByLabel("研究方向与关键词").fill("deep learning attention");
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
     await page.getByRole("button", { name: "自动找文献（含地址）" }).click();
-    await expect(page.getByText(/双池检索完成/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/外文池检索完成/).first()).toBeVisible({ timeout: 30_000 });
     // 背景引用与补充检索链接（行业报告/政策不计入配额）
     await expect(page.getByRole("button", { name: "行业报告·艾瑞咨询" })).toBeVisible();
     await expect(page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" })).toContainText("https://example.org/attention");

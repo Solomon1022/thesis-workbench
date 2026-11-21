@@ -234,6 +234,37 @@ export const ACADEMIC_SYNONYMS: Record<string, string[]> = {
   "社交媒体": ["社会化媒体", "社交平台", "新媒体"],
 };
 
+/** 结果词（因变量类概念）词典：用于「主体词/结果词」自动拆分；结果词为必选词，扩容永不触碰 */
+export const RESULT_WORD_DICT: string[] = [
+  "购买意愿", "购买意向", "购买行为", "消费意愿", "消费行为", "购买决策", "冲动购买",
+  "使用意愿", "采纳意愿", "持续使用意愿", "付费意愿", "满意度", "忠诚度", "品牌忠诚",
+  "信任", "绩效", "工作绩效", "学习效果", "使用行为", "参与意愿", "捐赠意愿",
+  "幸福感", "主观幸福感", "生活质量", "依从行为", "采纳行为", "购买倾向",
+];
+
+/** 结果词后缀判定（词典未命中时的兜底启发式） */
+export const RESULT_WORD_SUFFIX = ["意愿", "行为", "满意度", "忠诚", "绩效", "效果", "影响", "倾向", "采纳", "信任"];
+
+/** 主体词禁止放宽边界：某些主体概念的上义泛词会导致主题跑偏，扩容时绝对禁止使用 */
+export const FORBIDDEN_SUBJECT_EXPANSIONS: Record<string, string[]> = {
+  "虚拟主播": ["主播", "直播", "网络主播", "网红"],
+  "AI虚拟主播": ["主播", "直播", "AI", "人工智能"],
+  "数字人": ["人", "数字", "虚拟"],
+  "虚拟数字人": ["数字人", "虚拟"],
+  "直播互动性": ["直播", "互动"],
+  "个性化推荐": ["推荐", "个性化"],
+  "社会临场感": ["临场感", "社会"],
+};
+
+/** 中文文献主检索源（跳转官网检索；合规：不爬取中文闭源平台，只提供元数据检索入口） */
+export const CN_SEARCH_PLATFORMS: Array<{ key: string; name: string; searchTemplate: string | null; note: string }> = [
+  { key: "baidu-xueshu", name: "百度学术", searchTemplate: "https://xueshu.baidu.com/s?wd=%s", note: "中文文献发现入口（官方检索，需在浏览器完成）" },
+  { key: "cnki", name: "中国知网 CNKI", searchTemplate: "https://kns.cnki.net/kns8s/defaultresult/index?kw=%s", note: "中文期刊/硕博/会议最大库（订阅/混合）" },
+  { key: "wanfang", name: "万方数据", searchTemplate: "https://s.wanfangdata.com.cn/paper?q=%s", note: "中文期刊/学位/会议" },
+  { key: "vip", name: "维普网", searchTemplate: "http://qikan.cqvip.com/Qikan/Search/Index?key=%s", note: "中文科技期刊" },
+  { key: "nssd", name: "国家哲学社会科学文献中心", searchTemplate: null, note: "免费中文社科开放文献（无稳定检索 URL，打开首页手动检索）" },
+];
+
 /** 中英学术术语硬词典（词典硬匹配 → 布尔检索式基底；模型只做补全与逻辑组合） */
 export const CN_EN_TERM_DICT: Record<string, string> = {
   "购买意愿": "purchase intention",

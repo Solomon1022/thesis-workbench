@@ -44,7 +44,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const [claim, setClaim] = useState("");
   const [location, setLocation] = useState("");
   const [showCN, setShowCN] = useState(false);
-  const [autoState, setAutoState] = useState<{ ok: boolean; message: string; queryUsed: string[]; results: Candidate[]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string; backgroundLinks?: Array<{ name: string; url: string }> } | null>(null);
+  const [autoState, setAutoState] = useState<{ ok: boolean; message: string; queryUsed: string[]; results: Candidate[]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string; backgroundLinks?: Array<{ name: string; url: string }>; cnJumpLinks?: Array<{ name: string; url: string; query: string }> } | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoTotal, setAutoTotal] = useState(15);
   const [autoCn, setAutoCn] = useState(0);
@@ -344,6 +344,16 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         </div>
         {autoRangeWarn && <p className="banner banner-error">{autoRangeWarn}</p>}
         {autoState && autoState.ok && <p className="muted">本次检索式：{autoState.queryUsed.join("；")}</p>}
+        {autoState?.cnJumpLinks && autoState.cnJumpLinks.length > 0 && (
+          <div className="preferred-links cn-jump">
+            <span className="muted">中文文献主检索源（带必选词约束的检索式，点击跳转官网检索后导入本库）：{autoState.cnJumpLinks[0]?.query ?? ""}</span>
+            <div className="lit-suggest">
+              {autoState.cnJumpLinks.map((l) => (
+                <button key={l.name} className="chip chip-on" onClick={() => openUrl(l.url)}>{l.name}</button>
+              ))}
+            </div>
+          </div>
+        )}
         {autoState && <p className="muted">说明：{autoState.cnNote ?? ""}</p>}
         {autoState?.backgroundLinks && autoState.backgroundLinks.length > 0 && (
           <div className="preferred-links">

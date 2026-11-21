@@ -9,8 +9,9 @@ import { openalexSearch } from "./adapters/openalex";
 import { arxivSearch } from "./adapters/arxiv";
 import { pubmedSearch } from "./adapters/pubmed";
 import { normalizeDoi, normalizeTitle } from "../shared/bibparse";
-import { ACADEMIC_SYNONYMS, CN_EN_TERM_DICT, CORE_CN_JOURNALS, MAJOR_PLATFORM_GROUPS, SEED_LIBRARY } from "../shared/literature";
+import { ACADEMIC_SYNONYMS, CN_EN_TERM_DICT, CN_SEARCH_PLATFORMS, CORE_CN_JOURNALS, MAJOR_PLATFORM_GROUPS, SEED_LIBRARY } from "../shared/literature";
 import { buildForeignQuery, type ForeignQueryResolver } from "./query-builder";
+import { classifyTerms, compositeScore, hardFilterPass, ngramSimilarity, planLevels, SIMILARITY_THRESHOLD_EN } from "./query-planner";
 import type { EvidenceCard, LiteratureItem, LiteratureSource, SearchLogEntry, SearchOutcome } from "../shared/literature";
 
 export type LiteratureInput = Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt" | "refType" | "region"> & Partial<Pick<LiteratureItem, "refType" | "region">>;
@@ -76,26 +77,6 @@ export function expandQueries(rawKeywords: string[]): Array<{ query: string; lev
   return out;
 }
 
-/** 领域标杆术语（种子库提炼，用于相关度加权与过滤） */
-const SEED_TERMS: string[] = [...new Set(SEED_LIBRARY.flatMap((d) => d.terms))];
-
-/** 排序权重：核心期刊 > 种子术语相关度 > 被引数；偏好开放资料时 OA 加权（汉斯系等默认低权重，需人工核验质量） */
-function rankScore(item: { venue: string; title?: string; citedBy?: number; isOa?: boolean }, preferOpenAccess: boolean): number {
-  let score = 0;
-  const venue = item.venue ?? "";
-  if (CORE_CN_JOURNALS.some((j) => venue.includes(j))) score += 30;
-  const title = item.title ?? "";
-  for (const t of SEED_TERMS) {
-    if (title.includes(t)) score += 4;
-  }
-  score += Math.min(20, Number(item.citedBy ?? 0));
-  if (preferOpenAccess) {
-    if (item.isOa === true) score += 6;
-    if (item.isOa === false) score -= 6;
-  }
-  if (/汉斯|Hans|Operations Research and Fuzziology|E-Commerce Letters|Open Journal/i.test(venue)) score -= 5;
-  return score;
-}
 
 
 /** 文献库服务：检索走真实学术数据源；AI 只生成检索式，不产出文献记录。 */
@@ -139,10 +120,12 @@ export class LiteratureService {
     }
   }
 
-  /** 一键自动找文献（双池架构）：
-   *  国内池 = OpenAlex(language=zh) + Crossref 中文检索；国外池 = OpenAlex + Crossref 英文检索。
-   *  双池独立计数；中文关键词多层扩词；国内不足时按 1/2 级扩容；3/4 级只给背景引用跳转链接（不计入配额）。
-   *  真实检索不足时如实报告缺口，绝不编造或硬塞不相关文献。 */
+  /** 一键自动找文献（双池彻底拆分 + 必选词约束 + 扩容熔断 + 两层过滤 + 多维评分）：
+   *  中文池：不再用外文平台当主检索源；生成带必选词约束的检索式 → 中文平台（百度学术/知网/万方/维普/NSSD）跳转检索，
+   *           中文文献由用户在中文平台检索后导入本库（合规：不爬取中文闭源平台）。
+   *  外文池：OpenAlex + Crossref 真实检索，L0-L2 分级扩容、L3 理论补充（不计核心配额）；
+   *           结果过两道过滤闸（规则硬过滤 + 本地轻量语义相似度），再按多维权重排序。
+   *  真实不足如实报告缺口，绝不编造、绝不硬塞。 */
   async autoSearch(projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[]; preferredPlatforms?: string[]; openAccessOnly?: boolean; globalLibraries?: boolean }): Promise<{
     ok: boolean;
     message: string;
@@ -152,6 +135,7 @@ export class LiteratureService {
     cnNote?: string;
     preferredLinks?: Array<{ key: string; name: string; url: string }>;
     backgroundLinks?: Array<{ name: string; url: string }>;
+    cnJumpLinks?: Array<{ name: string; url: string; query: string }>;
   }> {
     const total = Math.min(30, Math.max(15, opts?.total ?? 15));
     const cnRequested = Math.min(total, Math.max(0, opts?.cn ?? 0));
@@ -163,155 +147,108 @@ export class LiteratureService {
     const direction = String(topic["direction"] ?? "").trim();
     const candidatesField = String(topic["candidates"] ?? "").trim();
     const abstract = String(design["abstract"] ?? "").trim();
+    const variablesJson = String(topic["variables"] ?? "").trim();
+    const topicText = [direction, candidatesField, abstract].filter(Boolean).join(" ");
 
-    // 中文关键词（方向/摘要中的中文片段）与英文关键词（变量名）
+    // 关键词切词 + 主体/结果词分类（变量优先，词典兜底）
     const cnKeywords: string[] = [];
     for (const text of [direction, candidatesField, abstract]) {
-      for (const k of segmentKeywords(text)) {
-        if (!cnKeywords.includes(k)) cnKeywords.push(k);
+      for (const k of segmentKeywords(text)) if (!cnKeywords.includes(k)) cnKeywords.push(k);
+    }
+    const clsBase = classifyTerms(topicText, variablesJson, cnKeywords);
+    // 兜底：词典分类为空（如纯英文短选题）时，用选题文本的前几个词作主体词
+    const cls = clsBase.subject.length === 0 && clsBase.result.length === 0
+      ? { ...clsBase, subject: topicText.split(/[^a-zA-Z0-9\u4e00-\u9fa5]+/).filter((t) => t.length >= 3).slice(0, 4) }
+      : clsBase;
+    const plans = planLevels(cls);
+
+    // 中文池：必选词约束检索式 → 中文平台跳转（不爬取，用户检索后导入）
+    const cnJumpLinks: Array<{ name: string; url: string; query: string }> = [];
+    const l1 = plans.find((p) => p.level === "L1") ?? plans[0];
+    if (cnRequested > 0 && l1?.cnQuery) {
+      for (const pf of CN_SEARCH_PLATFORMS) {
+        const url = pf.searchTemplate ? pf.searchTemplate.replace("%s", encodeURIComponent(l1.cnQuery)) : "https://www.nssd.cn";
+        cnJumpLinks.push({ name: pf.name, url, query: l1.cnQuery });
       }
     }
-    const enQueries: string[] = [];
-    if (direction && /[a-zA-Z]{2,}/.test(direction)) enQueries.push(direction.split(/[，,；;\n。]/)[0].trim());
-    const variablesJson = String(topic["variables"] ?? "").trim();
-    if (variablesJson) {
-      try {
-        const v = JSON.parse(variablesJson) as Record<string, string[]>;
-        const parts = [...(v.iv ?? []), ...(v.dv ?? []), ...(v.mediator ?? []), ...(v.custom ?? [])].map((s) => String(s).trim()).filter(Boolean);
-        // 中文变量名 → 国内池关键词；拉丁字母变量名 → 国外池检索式
-        for (const s of parts) {
-          for (const k of segmentKeywords(String(s))) {
-            if (!cnKeywords.includes(k)) cnKeywords.push(k);
-          }
-        }
-        const enParts = parts.filter((p) => /[a-zA-Z]{2,}/.test(p));
-        if (enParts.length > 0) enQueries.push(enParts.join(" "));
-      } catch { /* 忽略 */ }
-    }
-    if (abstract && /[a-zA-Z]{2,}/.test(abstract)) enQueries.push(abstract.slice(0, 120));
 
+    // 外文池：L0-L2 核心 + L3 理论补充（熔断，禁止继续放宽）
     const used: string[] = [];
     const seenKeys = new Set<string>();
     const seenTitles = new Set<string>();
-    const cnResults: Array<SearchOutcome["items"][number] & { level?: string; citedBy?: number }> = [];
-    const enResults: Array<SearchOutcome["items"][number] & { level?: string; citedBy?: number }> = [];
+    const rawPool: Array<SearchOutcome["items"][number] & { level: string; citedBy?: number; isOa?: boolean; queryText?: string }> = [];
 
-    const pushUnique = (pool: typeof cnResults, item: SearchOutcome["items"][number], level: string, citedBy: number) => {
+    const pushUnique = (item: SearchOutcome["items"][number], level: string, citedBy: number, query: string) => {
       const key = item.doi || (item.title + "|" + item.authors);
       const normTitle = normalizeTitle(item.title);
-      if (!key || seenKeys.has(key) || (normTitle && seenTitles.has(normTitle)) || exclude.has(item.doi)) return false;
+      if (!key || seenKeys.has(key) || (normTitle && seenTitles.has(normTitle)) || exclude.has(item.doi)) return;
       seenKeys.add(key);
       if (normTitle) seenTitles.add(normTitle);
-      pool.push({ ...item, level, citedBy });
-      return true;
+      rawPool.push({ ...item, level, citedBy, queryText: query });
     };
 
-    const fetchPool = async (query: string, language: "zh" | "en" | "", pool: typeof cnResults, level: string) => {
+    const fetchEn = async (query: string, level: string) => {
       used.push(query);
       try {
-        const oaPromise = (async () => {
-          // 中文池：标题精确匹配优先（精度）；0 结果再回退全文检索
-          if (language === "zh") {
-            const t = await openalexSearch(query, { language, rows: 20, mode: "title", signal: this.signalWithTimeout() });
-            if (t.items.length > 0) return t;
-            return openalexSearch(query, { language, rows: 20, signal: this.signalWithTimeout() });
-          }
-          return openalexSearch(query, { language, rows: 20, signal: this.signalWithTimeout() });
-        })();
         const [oa, cr] = await Promise.allSettled([
-          oaPromise,
+          openalexSearch(query, { language: "en", rows: 20, signal: this.signalWithTimeout() }),
           crossrefSearch(query, this.settings.getContactEmail(), this.signalWithTimeout(), { rows: 20 }),
         ]);
         if (oa.status === "fulfilled" && oa.value.status !== "error") {
           for (const item of oa.value.items) {
             const typed = item as SearchOutcome["items"][number] & { citedBy: number; isOa?: boolean };
-            pushUnique(pool, item, level, Number(typed.citedBy ?? 0));
+            pushUnique(item, level, Number(typed.citedBy ?? 0), query);
           }
         }
         if (cr.status === "fulfilled" && cr.value.status !== "error") {
-          for (const item of cr.value.items) pushUnique(pool, item, level, Number((item as { citedBy?: number }).citedBy ?? 0));
+          for (const item of cr.value.items) pushUnique(item, level, Number((item as { citedBy?: number }).citedBy ?? 0), query);
         }
-        this.db.appendSearchLog(projectId, "crossref+openalex", query, pool.length, "ok", "双池自动检索");
-      } catch { /* 单个源失败不阻塞另一源 */ }
+        this.db.appendSearchLog(projectId, "crossref+openalex", query, rawPool.length, "ok", "双池自动检索（外文池）");
+      } catch { /* 单源失败不阻塞 */ }
     };
 
-    // 国外池缺少英文检索式时：词典硬匹配 + 可插拔模型布尔检索式（真实库检索，不编造文献）
-    if (enQueries.length === 0 && cnKeywords.length > 0) {
-      const role = this.settings.resolveRole("search_assist");
-      const resolver: ForeignQueryResolver | null = role
-        ? {
-            generate: async (kws: string[]) => {
-              const raw = await chat({
-                channel: role.channel,
-                apiKey: role.apiKey,
-                messages: [
-                  { role: "system", content: "你是学术检索助手。把中文研究关键词转换为学术数据库布尔检索式：用引号短语与 AND/OR 连接词；只输出检索式本身（不超过 100 字符），禁止输出句子、解释或翻译。" },
-                  { role: "user", content: "中文关键词：" + kws.join("、") },
-                ],
-                maxTokens: 120,
-                temperature: 0.1,
-                signal: this.signalWithTimeout(),
-              });
-              return raw;
-            },
-          }
-        : null;
-      const built = await buildForeignQuery(cnKeywords.slice(0, 4), resolver);
-      if (built) enQueries.push(built.query);
-    }
-    // 国外池
-    for (const q of enQueries.slice(0, 3)) {
-      if (enResults.length >= enRequested + 5) break;
-      await fetchPool(q, "en", enResults, "core");
-    }
-    // 国内池：扩词逐级检索（不足再下一级）
-    const expanded = expandQueries(cnKeywords.slice(0, 4));
-    for (const e of expanded) {
-      if (cnResults.length >= cnRequested + 5) break;
-      await fetchPool(e.query, "zh", cnResults, e.level);
+    for (const p of plans) {
+      if (!p.enQuery) continue;
+      if (rawPool.length >= enRequested + 8) break;
+      await fetchEn(p.enQuery, p.level);
     }
 
-    // 相关性过滤：只保留命中「主题术语」的题录（种子术语 ∪ 查询词），不相关的一律不进结果
-    const WEAK_CN_TERMS = new Set(["消费者", "直播", "电商", "电子商务", "大学生", "网络", "平台"]);
-    const cnRelevanceTerms = new Set([...cnKeywords, ...SEED_TERMS.filter((t) => /[\u4e00-\u9fa5]/.test(t))].filter((t) => !WEAK_CN_TERMS.has(t)));
-    const enRelevanceTerms = new Set([
-      ...enQueries.flatMap((q) => q.split(/[\s"()]+/)).map((t) => t.toLowerCase()).filter((t) => t.length >= 3),
-      ...SEED_TERMS.filter((t) => !/[\u4e00-\u9fa5]/.test(t)).map((t) => t.toLowerCase()),
-    ]);
-    const cnRelevant = cnResults.filter((r) => [...cnRelevanceTerms].some((t) => (r.title ?? "").includes(t)));
-    const enRelevant = enResults.filter((r) => {
-      const title = (r.title ?? "").toLowerCase();
-      return [...enRelevanceTerms].some((t) => title.includes(t));
-    });
-    const filteredCn = cnResults.length - cnRelevant.length;
-    const filteredEn = enResults.length - enRelevant.length;
-    cnResults.length = 0;
-    cnResults.push(...cnRelevant);
-    enResults.length = 0;
-    enResults.push(...enRelevant);
+    // P1 两层过滤
+    const filtered: typeof rawPool = [];
+    let hardDropped = 0;
+    let simDropped = 0;
+    for (const item of rawPool) {
+      if (!hardFilterPass(item.title, cls, "en", item.level)) { hardDropped++; continue; }
+      const sim = ngramSimilarity(item.title + " " + item.abstract, (item as typeof item & { queryText?: string }).queryText ?? topicText);
+      if (sim < SIMILARITY_THRESHOLD_EN) { simDropped++; continue; }
+      (item as typeof item & { similarity: number }).similarity = sim;
+      filtered.push(item);
+    }
 
-    // 排序（核心期刊优先 + 种子术语相关度 + 被引数；偏好开放资料时 OA 文献加权）
+    // P2 多维评分排序（相关度 60% + 质量 30% + 引用 10%）
     const preferOpen = Boolean(opts?.openAccessOnly);
-    cnResults.sort((a, b) => rankScore(b, preferOpen) - rankScore(a, preferOpen));
-    enResults.sort((a, b) => rankScore(b, preferOpen) - rankScore(a, preferOpen));
+    filtered.sort((a, b) => {
+      const scoreOf = (item: typeof rawPool[number]) => {
+        const sim = (item as typeof item & { similarity: number }).similarity ?? 0;
+        const isCore = CORE_CN_JOURNALS.some((j) => (item.venue ?? "").includes(j));
+        let s = compositeScore({ similarity: sim, subjectHitInTitle: true, resultHitInTitle: true, isCoreJournal: isCore, citedBy: item.citedBy });
+        if (preferOpen && item.isOa === true) s += 6;
+        if (preferOpen && item.isOa === false) s -= 6;
+        return s;
+      };
+      return scoreOf(b) - scoreOf(a);
+    });
 
-    const cnFound = Math.min(cnRequested, cnResults.length);
-    const enFound = Math.min(enRequested, enResults.length);
-    const counts = { cnRequested, enRequested, cnFound, enFound };
-    const cnSelected = cnResults.slice(0, cnFound);
-    const enSelected = enResults.slice(0, enFound);
-    const results = [...cnSelected, ...enSelected];
+    const corePool = filtered.filter((i) => i.level !== "L3");
+    const theoryPool = filtered.filter((i) => i.level === "L3");
+    const enFound = Math.min(enRequested, corePool.length);
+    const results = [...corePool.slice(0, enFound), ...theoryPool.slice(0, Math.min(4, Math.max(0, enRequested - enFound)))].map((i) => {
+      const r = { ...i } as SearchOutcome["items"][number] & { level?: string; citedBy?: number; similarity?: number };
+      return r;
+    });
 
-    // 3/4 级背景引用跳转（不计入配额，不混入学术文献）
-    const bgKeywords = cnKeywords.slice(0, 2).join(" ") || direction.slice(0, 30);
-    const bgQ = encodeURIComponent(bgKeywords);
-    const backgroundLinks = [
-      { name: "百度学术（跳转检索）", url: "https://xueshu.baidu.com/s?wd=" + bgQ },
-      { name: "知网（跳转检索）", url: "https://kns.cnki.net/kns8s/defaultresult/index?kw=" + bgQ },
-      { name: "万方（跳转检索）", url: "https://s.wanfangdata.com.cn/paper?q=" + bgQ },
-      { name: "行业报告·艾瑞咨询", url: "https://www.iresearch.com.cn/search/?keyword=" + bgQ },
-      { name: "行业报告·QuestMobile", url: "https://www.questmobile.com.cn/search?keyword=" + bgQ },
-    ];
+    const counts = { cnRequested, enRequested, cnFound: 0, enFound };
+    const cnNote = "中文池不再使用外文平台：请点击下方「中文平台跳转检索」（检索式已带必选词约束），在百度学术/知网/万方/维普/NSSD 检索后把文献导入本库（合规：不爬取中文闭源平台，只提供元数据入口）；导入后国内配额才会累计";
 
     // 偏好平台跳转（偏向，非绝对）
     const preferredLinks: Array<{ key: string; name: string; url: string }> = [];
@@ -327,26 +264,21 @@ export class LiteratureService {
       }
     }
 
-    // 如实报告缺口
-    const gapCn = Math.max(0, cnRequested - cnFound);
-    const gapEn = Math.max(0, enRequested - enFound);
-    const levelSummary = (() => {
-      const l1 = cnResults.filter((r) => r.level === "l1").length;
-      const l2 = cnResults.filter((r) => r.level === "l2").length;
-      return l1 + l2 > 0 ? "（其中 " + l1 + " 篇来自 1 级扩容、" + l2 + " 篇来自 2 级扩容，引用位置已标注）" : "";
-    })();
-    const filterNote = filteredCn + filteredEn > 0 ? "；已过滤 " + (filteredCn + filteredEn) + " 篇主题不相关题录（仅保留命中主题术语的文献）" : "";
-    const parts: string[] = ["双池检索完成：国内 " + cnFound + "/" + cnRequested + "、国外 " + enFound + "/" + enRequested + levelSummary + filterNote];
-    if (gapCn > 0 || gapEn > 0) {
-      parts.push("真实公开数据源不足的部分未硬凑：" + (gapCn > 0 ? "国内缺 " + gapCn + " 篇，" : "") + (gapEn > 0 ? "国外缺 " + gapEn + " 篇" : "") + "；请用下方背景引用链接与跳转检索补充，或手动录入核心文献");
-    }
-    const cnNote = "国内文献来自 OpenAlex 中文子集与 Crossref（知网/万方无公开 API，仅提供跳转检索）；3/4 级行业报告与政策文件只作背景引用，不计入学术文献配额";
-    if (results.length === 0) {
-      return { ok: false, message: parts.join("，") + "（真实检索 0 条）", queryUsed: used, results, counts, cnNote, preferredLinks, backgroundLinks };
-    }
-    return { ok: true, message: parts.join("，"), queryUsed: used, results, counts, cnNote, preferredLinks, backgroundLinks };
-  }
+    // 3/4 级背景引用跳转（不计入配额）
+    const bgQ = encodeURIComponent(cnKeywords.slice(0, 2).join(" ") || direction.slice(0, 30));
+    const backgroundLinks = [
+      { name: "行业报告·艾瑞咨询", url: "https://www.iresearch.com.cn/search/?keyword=" + bgQ },
+      { name: "行业报告·QuestMobile", url: "https://www.questmobile.com.cn/search?keyword=" + bgQ },
+    ];
 
+    const filterNote = hardDropped + simDropped > 0 ? "；已过两道过滤闸：规则剔除 " + hardDropped + " 篇、语义相似度剔除 " + simDropped + " 篇" : "";
+    const levelNote = theoryPool.length > 0 ? "；L3 理论补充文献不计入核心配额（已标注）" : "";
+    const parts: string[] = ["外文池检索完成：核心 " + enFound + "/" + enRequested + "、" + "国内 " + cnRequested + " 篇需在中文平台检索后导入" + levelNote + filterNote];
+    if (results.length === 0) {
+      return { ok: false, message: parts.join("，") + "（真实检索 0 条）", queryUsed: used, results, counts, cnNote, preferredLinks, backgroundLinks, cnJumpLinks };
+    }
+    return { ok: true, message: parts.join("，"), queryUsed: used, results, counts, cnNote, preferredLinks, backgroundLinks, cnJumpLinks };
+  }
   /** 更新文献形式与国内外区分（初判可被用户修正）。 */
   updateMeta(projectId: string, literatureId: string, patch: { refType?: string; region?: string }): void {
     const item = this.db.listLiterature(projectId).find((l) => l.id === literatureId);
