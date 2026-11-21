@@ -6,7 +6,7 @@ import { openalexSearch } from "./adapters/openalex";
 import { normalizeTitle } from "../shared/bibparse";
 import type { SearchOutcome } from "../shared/literature";
 import {
-  classifyTerms, englishTerm, expandSubject, hardFilterPass, isResultWord, ngramSimilarity, type TermClassification,
+  classifyTerms, englishTerm, expandResult, expandSubject, hardFilterPass, isResultWord, ngramSimilarity, type TermClassification,
 } from "./query-planner";
 import { segmentKeywords } from "./literature-service";
 
@@ -88,6 +88,34 @@ export class ReactSearchService {
   }
 
   /** 关键词清洗：必须是「词」（2-10 字），句子式输出会被拆分或丢弃，杜绝把研究问题当关键词 */
+  /** 拆词：整串拆成词（词典切词；无词典命中时按虚词/连接词切） */
+  private splitWords(terms: string[]): string[] {
+    const out: string[] = [];
+    for (const raw of terms) {
+      const t = String(raw ?? "").trim();
+      if (!t) continue;
+      const seg = segmentKeywords(t).filter((x) => x.length >= 2);
+      if (seg.length > 0) {
+        out.push(...seg);
+        continue;
+      }
+      const parts = t.split(/的|与|及|和|对|在|中|下|影响|研究|分析|直播|互动|基于|关于|作用/).map((x) => x.trim()).filter((x) => x.length >= 2 && x.length <= 12);
+      if (parts.length > 1) out.push(...parts);
+      else if (t.length >= 2 && t.length <= 12) out.push(t);
+    }
+    return [...new Set(out)].filter((x) => x.length >= 2 && x.length <= 12);
+  }
+
+  /** 拍平关键词：从主体∪结果∪中介∪对象全部取词，每个词同义延申，再按结果词分流。
+   *  任何上游误分类都不会丢词——全部平铺输出（词，不是句子）。 */
+  private flattenKeywords(cls: TermClassification): { subject: string[]; result: string[]; extra: string[] } {
+    const all = [...cls.subject, ...cls.result, ...cls.mediator, ...(cls.object ?? [])];
+    const words = [...new Set(this.splitWords(all).flatMap((t) => [t, ...expandSubject(t), ...expandResult(t)]))].filter((t) => t.length >= 2 && t.length <= 12);
+    const subject = words.filter((t) => !isResultWord(t)).slice(0, 14);
+    const result = words.filter((t) => isResultWord(t)).slice(0, 8);
+    return { subject, result, extra: [] };
+  }
+
   private sanitizeTerms(terms: string[]): string[] {
     const out: string[] = [];
     for (const raw of terms) {
@@ -113,6 +141,7 @@ export class ReactSearchService {
 
   /** ReAct-1：关键词规划器（提取 → 延申 → 自检；无模型时走确定性规则） */
   async planKeywords(projectId: string): Promise<KeywordPlan> {
+    try {
     const context = this.collectContext(projectId);
     const detail = this.db.getProjectDetail(projectId);
     const topicContent = detail.content["topic"] ?? {};
@@ -190,34 +219,60 @@ export class ReactSearchService {
           result: pickArr(ex3?.result, merged.result),
           extra: pickArr(ex3?.extra, merged.extra),
         };
-        plan = this.buildPlan(this.sanitizeTerms(final.subject), this.sanitizeTerms(final.result), this.sanitizeTerms(final.extra), cls, true);
+        const flat = this.flattenKeywords({ ...cls, subject: this.sanitizeTerms(final.subject), result: this.sanitizeTerms(final.result), mediator: this.sanitizeTerms(final.extra) });
+        plan = this.buildPlan(flat.subject, flat.result, flat.extra, cls, true);
       } catch { plan = null; }
     }
     if (!plan) {
-      plan = this.buildPlan(this.sanitizeTerms(cls.subject), this.sanitizeTerms(cls.result), [], cls, false);
+      const flat = this.flattenKeywords(cls);
+      plan = this.buildPlan(flat.subject, flat.result, flat.extra, cls, false);
     }
     return plan;
+    } catch (err) {
+      const detail2 = this.db.getProjectDetail(projectId);
+      const tokens = String(detail2?.project?.name ?? "").split(/[^a-zA-Z0-9\u4e00-\u9fa5]+/).filter((t) => t.length >= 2 && t.length <= 12).slice(0, 8);
+      const flat2 = this.flattenKeywords({ subject: tokens, result: [], mediator: [], subjectExpansions: [], resultExpansions: [] });
+      const plan2 = this.buildPlan(flat2.subject.length > 0 ? flat2.subject : ["研究主题"], flat2.result, flat2.extra, { subject: [], result: [], mediator: [], subjectExpansions: [], resultExpansions: [] }, false);
+      return { ...plan2, note: "关键词规划出现异常已自动兜底：" + (err instanceof Error ? err.message.slice(0, 60) : String(err)) + "；请核对下方关键词" };
+    }
   }
 
   private buildPlan(subject: string[], result: string[], extra: string[], cls: TermClassification, aiGenerated: boolean): KeywordPlan {
     const queries: Array<KeywordPlan["queries"][number]> = [];
     const subs = subject.length > 0 ? subject : (cls.object?.length ? cls.object : cls.subject.length ? cls.subject : [""]);
     const ress = result.length > 0 ? result : (cls.result.length > 0 ? cls.result : [""]);
-    for (const sub of subs) {
-      for (const res of ress) {
+    const zhSeen = new Set<string>();
+    const addQ = (zh: string, en: string | null, label: string, level: string, pair: { sub: string; res: string }) => {
+      if (!zh.trim() || zhSeen.has(zh)) return;
+      zhSeen.add(zh);
+      queries.push({ zh, en, label, level, pair });
+    };
+    // ① 主体词 × 结果词 配对（逐词，不合并搜索框）
+    for (const sub of subs.slice(0, 6)) {
+      for (const res of ress.slice(0, 3)) {
         const zh = [sub, res].filter(Boolean).join(" ");
         const enSub = englishTerm(sub, cls);
         const enRes = englishTerm(res, cls);
         const en = [enSub, enRes].filter(Boolean).join(" ") || null;
-        queries.push({ zh, en, label: "主体「" + sub + "」× 结果「" + res + "」", level: "L1", pair: { sub, res } });
+        addQ(zh, en, "主体「" + sub + "」× 结果「" + res + "」", "L1", { sub, res });
       }
     }
+    // ② 主体词单独检索式（中文池逐词搜索，稀疏库更易命中）
+    for (const sub of subs.slice(0, 6)) {
+      const en = englishTerm(sub, cls) || null;
+      addQ(sub, en, "单主体词「" + sub + "」", "L1", { sub, res: "" });
+    }
+    // ③ 结果词单独检索式
+    for (const res of ress.slice(0, 3)) {
+      const en = englishTerm(res, cls) || null;
+      addQ(res, en, "单结果词「" + res + "」", "L1", { sub: "", res });
+    }
     for (const ex of extra.slice(0, 4)) {
-      queries.push({ zh: ex, en: null, label: "背景补充「" + ex + "」", level: "extra", pair: { sub: ex, res: "" } });
+      addQ(ex, null, "背景补充「" + ex + "」", "extra", { sub: ex, res: "" });
     }
     const note = aiGenerated
-      ? "关键词由 AI 规划器三步生成（提取→延申→自检），检索前请确认"
-      : "未配置检索辅助模型，关键词由内置术语词典确定性生成";
+      ? "关键词由 AI 规划器三步生成（提取→延申→自检）并拍平为词，检索前请确认"
+      : "未配置检索辅助模型，关键词由内置术语词典确定性生成并拍平为词";
     return { subject, result, extra, queries, note, aiGenerated };
   }
 
