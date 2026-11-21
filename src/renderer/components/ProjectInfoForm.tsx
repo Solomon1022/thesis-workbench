@@ -188,6 +188,7 @@ export function ProjectInfoForm({ mode, initial, onSubmit, submitLabel, busy }: 
 
       <div className={stepClass(topicReady)}>
         <h3 className="ai-title">④ 研究方法（多选，可 AI 推荐，可自定义）</h3>
+        <p className="muted">固定方法不匹配时：AI 推荐会生成在下方，点「加入选择」即可把建议直接作为自定义方法添加，不限上面的固定列表。</p>
         <div className="lit-suggest">
           {METHOD_ORDER.map((m) => (
             <button key={m.key} className={"chip" + (methods.includes(m.key) ? " chip-on" : "")} onClick={() => toggleMethod(m.key)} title={m.note ?? m.label}>{m.label}</button>
@@ -204,7 +205,7 @@ export function ProjectInfoForm({ mode, initial, onSubmit, submitLabel, busy }: 
         {methodSuggestions.map((s) => (
           <div key={s.method} className="ai-suggest-item">
             <div className="ai-suggest-head">
-              <strong>{s.method}</strong>
+              <strong>{s.method}{!s.methodKey && <span className="badge">自定义方法</span>}</strong>
               <button className="btn btn-sm" onClick={() => { if (!methods.includes(s.methodKey ?? s.method)) setMethods((prev) => [...prev, s.methodKey ?? s.method]); }}>加入选择</button>
             </div>
             <div className="muted">{s.reason}</div>

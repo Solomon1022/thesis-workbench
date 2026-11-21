@@ -101,10 +101,20 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await expect(page.getByText("论文检索平台导航（内置检索 + 主要平台跳转，来源于平台导航清单）")).toBeVisible();
     await page.getByText("论文检索平台导航（内置检索 + 主要平台跳转，来源于平台导航清单）").click();
     await expect(page.getByText("中文主要平台（中国大陆，68–78）")).toBeVisible();
-    await expect(page.getByRole("button", { name: "中国知网 CNKI" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "中国知网 CNKI" }).first()).toBeVisible();
     await page.getByText("论文检索平台导航（内置检索 + 主要平台跳转，来源于平台导航清单）").click();
 
+    // 0a) 论文库偏好弹窗（模态：确定/取消才关闭；偏向非绝对）
+    await page.getByRole("button", { name: /选择偏好论文库/ }).click();
+    await expect(page.getByText("选择偏好的论文库")).toBeVisible();
+    await page.locator(".modal").getByRole("button", { name: "中国知网 CNKI" }).click();
+    await page.locator(".modal").getByRole("radio", { name: "绝对的开放资料（只偏向免费/OA 平台）" }).check();
+    await page.locator(".modal").getByRole("checkbox", { name: /全球通用库/ }).check();
+    await page.locator(".modal").getByRole("button", { name: "确定" }).click();
+    await expect(page.getByText(/已保存论文库偏好/)).toBeVisible();
+
     // 0) 一键自动找文献（基于选题内容，输出真实地址，不保存）
+    await expect(page.getByText("总数范围：大于等于 15 篇、小于等于 30 篇")).toBeVisible();
     await page.getByRole("button", { name: /前期检索与选题/ }).click();
     await page.getByLabel("研究方向与关键词").fill("deep learning attention");
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
@@ -112,6 +122,8 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await expect(page.getByText(/自动检索完成/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" })).toContainText("https://example.org/attention");
     await expect(page.getByText("Crossref（一键自动检索）")).toBeVisible();
+    // 偏好库跳转链接（偏向，非绝对）——知网标签含「订阅」被开放资料过滤，全球通用库勾选
+    await expect(page.locator(".preferred-links")).toContainText("偏向检索（非绝对");
 
     // 1) Crossref 检索 → 候选 → 保存
     await page.getByLabel("检索式").fill("attention transformer");

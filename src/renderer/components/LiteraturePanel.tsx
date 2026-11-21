@@ -3,6 +3,7 @@ import type { ProjectDetail } from "../../shared/types";
 import type { EvidenceCard, LiteratureItem, SearchLogEntry, SearchOutcome } from "../../shared/literature";
 import { CN_PLATFORMS, LITERATURE_SOURCE_LABEL, MAJOR_PLATFORM_GROUPS, REF_TYPES, REF_TYPE_LABEL, REF_TYPE_PRIORITY, REGION_LABEL, VERIFIED_STATUS_LABEL } from "../../shared/literature";
 import { parseBibTeX, parseRIS, type ParsedReference } from "../../shared/bibparse";
+import { PlatformPreferenceModal, type PlatformPrefs } from "./PlatformPreferenceModal";
 
 const api = () => window.thesisWorkbench;
 
@@ -47,7 +48,17 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoTotal, setAutoTotal] = useState(15);
   const [autoCn, setAutoCn] = useState(0);
+  const [autoRangeWarn, setAutoRangeWarn] = useState("");
   const [autoHistory, setAutoHistory] = useState<Array<{ at: string; queryUsed: string[]; results: Candidate[]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number } }>>([]);
+  const [platformPrefs, setPlatformPrefs] = useState<PlatformPrefs>(() => {
+    try {
+      const raw = localStorage.getItem("tw-platform-prefs");
+      if (raw) return { platformKeys: [], openAccessOnly: false, globalLibraries: false, ...(JSON.parse(raw) as Partial<PlatformPrefs>) };
+    } catch { /* 忽略 */ }
+    return { platformKeys: [], openAccessOnly: false, globalLibraries: false };
+  });
+  const [prefModalOpen, setPrefModalOpen] = useState(false);
+  const [preferredLinks, setPreferredLinks] = useState<Array<{ key: string; name: string; url: string }>>([]);
 
   const refresh = useCallback(async () => {
     const a = api();
@@ -116,15 +127,32 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const runAutoSearch = async () => {
     const a = api();
     if (!a || autoBusy) return;
+    const totalNum = Number(autoTotal);
+    if (!Number.isFinite(totalNum) || totalNum < 15 || totalNum > 30) {
+      setAutoRangeWarn(totalNum > 30 ? "⚠ 最多 30 篇，请将总数调整到 30 以内（15–30）" : "⚠ 建议总数不少于 15 篇（范围 15–30），过少会影响文献综述的充分性");
+      if (totalNum > 30) return;
+    } else {
+      setAutoRangeWarn("");
+    }
     setAutoBusy(true);
     setError("");
+    setPreferredLinks([]);
     try {
       const excludeDois = [
         ...items.map((i) => i.doi).filter(Boolean),
         ...autoHistory.flatMap((h) => h.results.map((c) => c.doi).filter(Boolean)),
       ];
-      const r = await a.literatureAutoSearch(projectId, { total: autoTotal, cn: autoCn, en: Math.max(0, autoTotal - autoCn), excludeDois });
+      const r = await a.literatureAutoSearch(projectId, {
+        total: Math.min(30, Math.max(15, totalNum)),
+        cn: Math.max(0, Math.min(totalNum, Number(autoCn) || 0)),
+        en: Math.max(0, totalNum - (Number(autoCn) || 0)),
+        excludeDois,
+        preferredPlatforms: platformPrefs.platformKeys,
+        openAccessOnly: platformPrefs.openAccessOnly,
+        globalLibraries: platformPrefs.globalLibraries,
+      });
       setAutoState(r);
+      if (r.preferredLinks) setPreferredLinks(r.preferredLinks);
       if (r.ok) {
         setCandidates(r.results);
         setAutoHistory((prev) => [{ at: new Date().toLocaleString("zh-CN"), queryUsed: r.queryUsed, results: r.results, counts: r.counts }, ...prev].slice(0, 5));
@@ -305,14 +333,27 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
           <button className="btn btn-primary" disabled={autoBusy} onClick={() => void runAutoSearch()}>{autoBusy ? "检索中…" : "自动找文献（含地址）"}</button>
         </div>
         <p className="muted">根据「前期检索与选题」「研究问题与设计」里已填的方向、变量与摘要自动推导检索式，直接检索真实 Crossref 数据源；每条文献的地址直接给出，可一键保存入库。再次检索会自动排除已保存与历史推荐的文献，得到不同的结果。</p>
-        <div className="lit-search-row">
+        <div className="lit-search-row auto-counts-row">
           <label className="row-label">总数</label>
-          <input className="input input-num" aria-label="自动检索总数" type="number" min={1} max={30} value={autoTotal} onChange={(e) => setAutoTotal(Math.max(1, Math.min(30, Number(e.target.value) || 15)))} />
+          <input className="input input-num" aria-label="自动检索总数" type="number" min={15} max={30} step={1} value={autoTotal} onChange={(e) => setAutoTotal(Number(e.target.value) || 15)} />
           <label className="row-label">国内篇数</label>
-          <input className="input input-num" aria-label="国内篇数" type="number" min={0} max={autoTotal} value={autoCn} onChange={(e) => setAutoCn(Math.max(0, Math.min(autoTotal, Number(e.target.value) || 0)))} />
-          <span className="muted">国外自动为 {Math.max(0, autoTotal - autoCn)} 篇</span>
+          <input className="input input-num" aria-label="国内篇数" type="number" min={0} max={autoTotal} step={1} value={autoCn} onChange={(e) => setAutoCn(Number(e.target.value) || 0)} />
+          <span className="muted">国外自动为 {Math.max(0, Number(autoTotal) - Number(autoCn))} 篇</span>
+          <span className="muted range-hint">总数范围：大于等于 15 篇、小于等于 30 篇</span>
+          <button className="btn btn-sm" onClick={() => setPrefModalOpen(true)}>选择偏好论文库{platformPrefs.platformKeys.length > 0 ? "（已选 " + platformPrefs.platformKeys.length + "）" : ""}</button>
         </div>
+        {autoRangeWarn && <p className="banner banner-error">{autoRangeWarn}</p>}
         {autoState && autoState.ok && <p className="muted">本次检索式：{autoState.queryUsed.join("；")}</p>}
+        {preferredLinks.length > 0 && (
+          <div className="preferred-links">
+            <span className="muted">偏向检索（非绝对，点击用本次检索式跳转官网）：</span>
+            <div className="lit-suggest">
+              {preferredLinks.map((l) => (
+                <button key={l.key} className="chip" onClick={() => openUrl(l.url)}>{l.name}</button>
+              ))}
+            </div>
+          </div>
+        )}
         {autoHistory.length > 0 && (
           <details className="lit-log">
             <summary>历史推荐（折叠，共 {autoHistory.length} 批）</summary>
@@ -320,7 +361,9 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
               <div key={i} className="auto-history-batch">
                 <div className="muted">{h.at} · 检索式：{h.queryUsed.join("；")}{h.counts ? " · 国内 " + h.counts.cnFound + "/" + h.counts.cnRequested + "，国外 " + h.counts.enFound + "/" + h.counts.enRequested : ""}</div>
                 <ul className="auto-history-list">
-                  {h.results.slice(0, 8).map((c) => <li key={c.doi || c.title}>{c.title}（{c.year}）</li>)}
+                  {h.results.slice(0, 8).map((c) => (
+                    <li key={c.doi || c.title}>{c.title}（{c.year}）{c.url && <a href={c.url} onClick={(e) => { e.preventDefault(); openUrl(c.url); }}>打开链接</a>}</li>
+                  ))}
                   {h.results.length > 8 && <li className="muted">…共 {h.results.length} 条</li>}
                 </ul>
               </div>
@@ -547,7 +590,14 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
             ))}
           </div>
         )}
-        {log.length > 0 && (
+        {prefModalOpen && (
+        <PlatformPreferenceModal
+          initial={platformPrefs}
+          onConfirm={(prefs) => { setPlatformPrefs(prefs); try { localStorage.setItem("tw-platform-prefs", JSON.stringify(prefs)); } catch { /* 忽略 */ } setPrefModalOpen(false); setMessage("已保存论文库偏好（偏向，非绝对）：" + (prefs.platformKeys.length > 0 ? "已选 " + prefs.platformKeys.length + " 个库" : "未选具体库") + "；" + (prefs.openAccessOnly ? "只偏向开放资料" : "可接受订阅资料") + (prefs.globalLibraries ? "；含全球通用库" : "")); }}
+          onCancel={() => setPrefModalOpen(false)}
+        />
+      )}
+      {log.length > 0 && (
           <details className="lit-log">
             <summary>检索记录（{log.length} 条，最近优先）</summary>
             {log.map((l) => (

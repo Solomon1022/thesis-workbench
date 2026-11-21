@@ -249,3 +249,18 @@ body {
 
 .nav-settings-title { font-weight: 700; font-size: 13px; padding: 8px 10px; color: var(--primary-dark, #1d4ed8); border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .nav-settings-foot { margin-top: auto; padding: 10px; border-top: 1px solid var(--border); }
+
+/* 变量编辑器 2×2 网格 */
+.var-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.var-editor > p.muted { grid-column: 1 / -1; margin: 0; }
+.var-group { margin-bottom: 4px; }
+/* 数量输入去掉 spinner，方便直接打字 */
+.input-num { max-width: 90px; -moz-appearance: textfield; appearance: textfield; }
+.input-num::-webkit-outer-spin-button, .input-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.auto-counts-row { flex-wrap: wrap; }
+.range-hint { font-size: 12px; }
+.preferred-links { margin: 4px 0 8px; }
+.chip-tag { font-size: 11px; color: var(--muted); margin-left: 6px; }
+.pref-options { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.platform-title { font-weight: 600; margin: 8px 0 4px; }
+.auto-history-list a { margin-left: 6px; }

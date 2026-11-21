@@ -149,6 +149,7 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
         t.push({ key: "direction", label: "研究方向与关键词" });
       }
       t.push({ key: "candidates", label: "候选研究问题" });
+      t.push({ key: "sample_access", label: "样本可获得性（能否接触研究对象）" });
       return t;
     }
     if (stageKey === "design") {

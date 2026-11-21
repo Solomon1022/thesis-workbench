@@ -8,6 +8,7 @@ import { crossrefByDoi, crossrefSearch } from "./adapters/crossref";
 import { arxivSearch } from "./adapters/arxiv";
 import { pubmedSearch } from "./adapters/pubmed";
 import { normalizeDoi, normalizeTitle } from "../shared/bibparse";
+import { MAJOR_PLATFORM_GROUPS } from "../shared/literature";
 import type { EvidenceCard, LiteratureItem, LiteratureSource, SearchLogEntry, SearchOutcome } from "../shared/literature";
 
 export type LiteratureInput = Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt" | "refType" | "region"> & Partial<Pick<LiteratureItem, "refType" | "region">>;
@@ -63,15 +64,16 @@ export class LiteratureService {
   }
 
   /** 一键自动找文献：按总数/国内/国外篇数推导检索式，跑真实 Crossref；排除已保存与历史推荐的 DOI，保证再次检索得到不同结果。 */
-  async autoSearch(projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[] }): Promise<{
+  async autoSearch(projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[]; preferredPlatforms?: string[]; openAccessOnly?: boolean; globalLibraries?: boolean }): Promise<{
     ok: boolean;
     message: string;
     queryUsed: string[];
     results: SearchOutcome["items"];
     counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number };
     cnNote?: string;
+    preferredLinks?: Array<{ key: string; name: string; url: string }>;
   }> {
-    const total = Math.min(30, Math.max(1, opts?.total ?? 15));
+    const total = Math.min(30, Math.max(15, opts?.total ?? 15));
     const cnRequested = Math.min(total, Math.max(0, opts?.cn ?? 0));
     const enRequested = total - cnRequested;
     const exclude = new Set((opts?.excludeDois ?? []).map((d) => d.trim()).filter(Boolean));
@@ -111,6 +113,7 @@ export class LiteratureService {
       : undefined;
 
     const used: string[] = [];
+    const preferredLinks: Array<{ key: string; name: string; url: string }> = [];
     const results: SearchOutcome["items"] = [];
     const seen = new Set<string>();
     let cnFound = 0;
@@ -149,14 +152,32 @@ export class LiteratureService {
     }
 
     const counts = { cnRequested, enRequested, cnFound, enFound };
+
+    // 偏好平台跳转检索链接（偏向，非绝对；内置检索仍走真实 Crossref）
+    const globalGroup = MAJOR_PLATFORM_GROUPS.find((g) => g.title.includes("全球综合权威平台"));
+    for (const group of MAJOR_PLATFORM_GROUPS) {
+      for (const p of group.items) {
+        const inGlobal = Boolean(opts?.globalLibraries && globalGroup?.items.some((i) => i.key === p.key));
+        const selected = (opts?.preferredPlatforms ?? []).includes(p.key);
+        if (!selected && !inGlobal) continue;
+        // 「绝对的开放资料」过滤订阅库；用户显式勾选的全球通用库不受过滤影响
+        if (opts?.openAccessOnly && !inGlobal && !/免费|OA|开放/.test(p.tag)) continue;
+        if (!p.searchTemplate) continue;
+        const q = encodeURIComponent(used[0] ?? "");
+        preferredLinks.push({ key: p.key, name: p.name, url: p.searchTemplate.replace("%s", q) });
+      }
+    }
+    const prefNote = preferredLinks.length > 0
+      ? "；已按你偏好的论文库生成跳转检索链接（偏向，非绝对：内置检索仍走真实 Crossref）"
+      : "";
     if (results.length === 0) {
-      return { ok: false, message: "自动检索没有返回结果（真实 Crossref）" + (lastError ? "：" + lastError : ""), queryUsed: used, results, counts, cnNote };
+      return { ok: false, message: "自动检索没有返回结果（真实 Crossref）" + (lastError ? "：" + lastError : "") + prefNote, queryUsed: used, results, counts, cnNote, preferredLinks };
     }
     const parts = ["自动检索完成：共 " + results.length + " 条真实文献"];
     if (cnRequested > 0) parts.push("国内 " + cnFound + "/" + cnRequested);
     parts.push("国外 " + enFound + "/" + enRequested);
     parts.push("（已排除已保存与历史推荐的文献，再次检索会得到不同结果）");
-    return { ok: true, message: parts.join("，"), queryUsed: used, results: results.slice(0, total), counts, cnNote };
+    return { ok: true, message: parts.join("，") + prefNote, queryUsed: used, results: results.slice(0, total), counts, cnNote, preferredLinks };
   }
 
   /** 更新文献形式与国内外区分（初判可被用户修正）。 */

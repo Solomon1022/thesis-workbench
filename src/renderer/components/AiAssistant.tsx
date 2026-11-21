@@ -195,7 +195,7 @@ export function VariableEditor({ value, onChange }: { value: string; onChange: (
             const displayItems = items.length > 0 ? items : [""];
             return displayItems.map((item, i) => (
               <div key={i} className="lit-search-row var-row">
-                <input className="input" aria-label={g.label + "变量" + (i + 1)} placeholder="变量名，如：感知互动性" value={item} onChange={(e) => setItem(g.key, i, e.target.value)} />
+                <input className="input" aria-label={g.label + "变量" + (i + 1)} placeholder="变量名" value={item} onChange={(e) => setItem(g.key, i, e.target.value)} />
                 <button className="btn btn-sm btn-danger" onClick={() => removeItem(g.key, i)}>移除</button>
               </div>
             ));

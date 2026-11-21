@@ -28,7 +28,7 @@ const api = {
   literatureList: (projectId: string): Promise<LiteratureItem[]> => ipcRenderer.invoke("literature:list", projectId),
   literatureSearch: (projectId: string, source: string, query: string): Promise<{ outcome: SearchOutcome; log: SearchLogEntry }> =>
     ipcRenderer.invoke("literature:search", projectId, source, query),
-  literatureAutoSearch: (projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[] }): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: SearchOutcome["items"]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string }> =>
+  literatureAutoSearch: (projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[]; preferredPlatforms?: string[]; openAccessOnly?: boolean; globalLibraries?: boolean }): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: SearchOutcome["items"]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string; preferredLinks?: Array<{ key: string; name: string; url: string }> }> =>
     ipcRenderer.invoke("literature:autoSearch", projectId, opts),
   literatureUpdateMeta: (projectId: string, literatureId: string, patch: { refType?: string; region?: string }): Promise<void> =>
     ipcRenderer.invoke("literature:updateMeta", projectId, literatureId, patch),
