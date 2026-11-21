@@ -54,12 +54,18 @@ function workToItem(w: Record<string, unknown>) {
 }
 
 /** OpenAlex 检索：真实公开索引（含中文子集 language=zh） */
-export async function openalexSearch(query: string, opts?: { language?: "zh" | "en" | ""; rows?: number; offset?: number; signal?: AbortSignal }): Promise<SearchOutcome & { items: Array<SearchOutcome["items"][number] & { citedBy: number; isOa: boolean }> }> {
+export async function openalexSearch(query: string, opts?: { language?: "zh" | "en" | ""; rows?: number; offset?: number; mode?: "search" | "title"; signal?: AbortSignal }): Promise<SearchOutcome & { items: Array<SearchOutcome["items"][number] & { citedBy: number; isOa: boolean }> }> {
   const rows = Math.min(50, Math.max(1, opts?.rows ?? 10));
   const offset = Math.max(0, opts?.offset ?? 0);
   const params = new URLSearchParams();
-  params.set("search", query);
-  if (opts?.language) params.set("filter", "language:" + opts.language);
+  const filters: string[] = [];
+  if (opts?.language) filters.push("language:" + opts.language);
+  if ((opts?.mode ?? "search") === "title") {
+    filters.push("title.search:" + query.trim());
+  } else {
+    params.set("search", query);
+  }
+  if (filters.length > 0) params.set("filter", filters.join(","));
   params.set("per_page", String(rows));
   params.set("page", String(Math.floor(offset / rows) + 1));
   const url = openalexBase() + "/works?" + params.toString();

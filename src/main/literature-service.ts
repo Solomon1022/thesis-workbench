@@ -9,7 +9,7 @@ import { openalexSearch } from "./adapters/openalex";
 import { arxivSearch } from "./adapters/arxiv";
 import { pubmedSearch } from "./adapters/pubmed";
 import { normalizeDoi, normalizeTitle } from "../shared/bibparse";
-import { ACADEMIC_SYNONYMS, CORE_CN_JOURNALS, MAJOR_PLATFORM_GROUPS, SEED_LIBRARY } from "../shared/literature";
+import { ACADEMIC_SYNONYMS, CN_EN_TERM_DICT, CORE_CN_JOURNALS, MAJOR_PLATFORM_GROUPS, SEED_LIBRARY } from "../shared/literature";
 import { buildForeignQuery, type ForeignQueryResolver } from "./query-builder";
 import type { EvidenceCard, LiteratureItem, LiteratureSource, SearchLogEntry, SearchOutcome } from "../shared/literature";
 
@@ -23,6 +23,34 @@ export interface SaveOutcome {
 }
 
 const REAL_SOURCES: LiteratureSource[] = ["crossref", "openalex", "arxiv", "pubmed"];
+
+/** 词典词表（同义词键值 + 中英词典键 + 种子术语），按长度降序供最长匹配 */
+const DICT_TERMS: string[] = (() => {
+  const terms = new Set<string>();
+  for (const k of Object.keys(ACADEMIC_SYNONYMS)) { terms.add(k); for (const s of ACADEMIC_SYNONYMS[k]) terms.add(s); }
+  for (const k of Object.keys(CN_EN_TERM_DICT)) terms.add(k);
+  for (const d of SEED_LIBRARY) for (const t of d.terms) if (/[\u4e00-\u9fa5]/.test(t)) terms.add(t);
+  return [...terms].sort((a, b) => b.length - a.length);
+})();
+
+/** 中文文本 → 学术术语切词（词典最长匹配；整句不再被当成一个关键词，避免模糊检索跑偏） */
+export function segmentKeywords(text: string, maxTerms = 6): string[] {
+  let remaining = String(text ?? "");
+  const out: string[] = [];
+  while (remaining.length > 0 && out.length < maxTerms) {
+    let matched = false;
+    for (const t of DICT_TERMS) {
+      if (remaining.startsWith(t)) {
+        out.push(t);
+        remaining = remaining.slice(t.length);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) remaining = remaining.slice(1);
+  }
+  return [...new Set(out)];
+}
 
 /** 中文关键词多层扩词映射：用户输入 → 学术同义词组合（人工维护词库；不编造文献） */
 export function expandQueries(rawKeywords: string[]): Array<{ query: string; level: "core" | "l1" | "l2" }> {
@@ -48,12 +76,23 @@ export function expandQueries(rawKeywords: string[]): Array<{ query: string; lev
   return out;
 }
 
-/** 排序权重：核心期刊 > 被引数（汉斯系等 OA 平台默认低权重，需人工核验质量） */
-function rankScore(item: { venue: string; citedBy?: number }): number {
+/** 领域标杆术语（种子库提炼，用于相关度加权与过滤） */
+const SEED_TERMS: string[] = [...new Set(SEED_LIBRARY.flatMap((d) => d.terms))];
+
+/** 排序权重：核心期刊 > 种子术语相关度 > 被引数；偏好开放资料时 OA 加权（汉斯系等默认低权重，需人工核验质量） */
+function rankScore(item: { venue: string; title?: string; citedBy?: number; isOa?: boolean }, preferOpenAccess: boolean): number {
   let score = 0;
   const venue = item.venue ?? "";
   if (CORE_CN_JOURNALS.some((j) => venue.includes(j))) score += 30;
+  const title = item.title ?? "";
+  for (const t of SEED_TERMS) {
+    if (title.includes(t)) score += 4;
+  }
   score += Math.min(20, Number(item.citedBy ?? 0));
+  if (preferOpenAccess) {
+    if (item.isOa === true) score += 6;
+    if (item.isOa === false) score -= 6;
+  }
   if (/汉斯|Hans|Operations Research and Fuzziology|E-Commerce Letters|Open Journal/i.test(venue)) score -= 5;
   return score;
 }
@@ -128,8 +167,8 @@ export class LiteratureService {
     // 中文关键词（方向/摘要中的中文片段）与英文关键词（变量名）
     const cnKeywords: string[] = [];
     for (const text of [direction, candidatesField, abstract]) {
-      for (const m of text.match(/[\u4e00-\u9fa5]{2,}/g) ?? []) {
-        if (m.length >= 2 && !cnKeywords.includes(m)) cnKeywords.push(m);
+      for (const k of segmentKeywords(text)) {
+        if (!cnKeywords.includes(k)) cnKeywords.push(k);
       }
     }
     const enQueries: string[] = [];
@@ -141,8 +180,8 @@ export class LiteratureService {
         const parts = [...(v.iv ?? []), ...(v.dv ?? []), ...(v.mediator ?? []), ...(v.custom ?? [])].map((s) => String(s).trim()).filter(Boolean);
         // 中文变量名 → 国内池关键词；拉丁字母变量名 → 国外池检索式
         for (const s of parts) {
-          for (const m of String(s).match(/[\u4e00-\u9fa5]{2,}/g) ?? []) {
-            if (m.length >= 2 && !cnKeywords.includes(m)) cnKeywords.push(m);
+          for (const k of segmentKeywords(String(s))) {
+            if (!cnKeywords.includes(k)) cnKeywords.push(k);
           }
         }
         const enParts = parts.filter((p) => /[a-zA-Z]{2,}/.test(p));
@@ -170,13 +209,22 @@ export class LiteratureService {
     const fetchPool = async (query: string, language: "zh" | "en" | "", pool: typeof cnResults, level: string) => {
       used.push(query);
       try {
+        const oaPromise = (async () => {
+          // 中文池：标题精确匹配优先（精度）；0 结果再回退全文检索
+          if (language === "zh") {
+            const t = await openalexSearch(query, { language, rows: 20, mode: "title", signal: this.signalWithTimeout() });
+            if (t.items.length > 0) return t;
+            return openalexSearch(query, { language, rows: 20, signal: this.signalWithTimeout() });
+          }
+          return openalexSearch(query, { language, rows: 20, signal: this.signalWithTimeout() });
+        })();
         const [oa, cr] = await Promise.allSettled([
-          openalexSearch(query, { language, rows: 20, signal: this.signalWithTimeout() }),
+          oaPromise,
           crossrefSearch(query, this.settings.getContactEmail(), this.signalWithTimeout(), { rows: 20 }),
         ]);
         if (oa.status === "fulfilled" && oa.value.status !== "error") {
           for (const item of oa.value.items) {
-            const typed = item as SearchOutcome["items"][number] & { citedBy: number };
+            const typed = item as SearchOutcome["items"][number] & { citedBy: number; isOa?: boolean };
             pushUnique(pool, item, level, Number(typed.citedBy ?? 0));
           }
         }
@@ -223,9 +271,29 @@ export class LiteratureService {
       await fetchPool(e.query, "zh", cnResults, e.level);
     }
 
-    // 排序（核心期刊优先 + 被引数）
-    cnResults.sort((a, b) => rankScore(b) - rankScore(a));
-    enResults.sort((a, b) => rankScore(b) - rankScore(a));
+    // 相关性过滤：只保留命中「主题术语」的题录（种子术语 ∪ 查询词），不相关的一律不进结果
+    const WEAK_CN_TERMS = new Set(["消费者", "直播", "电商", "电子商务", "大学生", "网络", "平台"]);
+    const cnRelevanceTerms = new Set([...cnKeywords, ...SEED_TERMS.filter((t) => /[\u4e00-\u9fa5]/.test(t))].filter((t) => !WEAK_CN_TERMS.has(t)));
+    const enRelevanceTerms = new Set([
+      ...enQueries.flatMap((q) => q.split(/[\s"()]+/)).map((t) => t.toLowerCase()).filter((t) => t.length >= 3),
+      ...SEED_TERMS.filter((t) => !/[\u4e00-\u9fa5]/.test(t)).map((t) => t.toLowerCase()),
+    ]);
+    const cnRelevant = cnResults.filter((r) => [...cnRelevanceTerms].some((t) => (r.title ?? "").includes(t)));
+    const enRelevant = enResults.filter((r) => {
+      const title = (r.title ?? "").toLowerCase();
+      return [...enRelevanceTerms].some((t) => title.includes(t));
+    });
+    const filteredCn = cnResults.length - cnRelevant.length;
+    const filteredEn = enResults.length - enRelevant.length;
+    cnResults.length = 0;
+    cnResults.push(...cnRelevant);
+    enResults.length = 0;
+    enResults.push(...enRelevant);
+
+    // 排序（核心期刊优先 + 种子术语相关度 + 被引数；偏好开放资料时 OA 文献加权）
+    const preferOpen = Boolean(opts?.openAccessOnly);
+    cnResults.sort((a, b) => rankScore(b, preferOpen) - rankScore(a, preferOpen));
+    enResults.sort((a, b) => rankScore(b, preferOpen) - rankScore(a, preferOpen));
 
     const cnFound = Math.min(cnRequested, cnResults.length);
     const enFound = Math.min(enRequested, enResults.length);
@@ -267,7 +335,8 @@ export class LiteratureService {
       const l2 = cnResults.filter((r) => r.level === "l2").length;
       return l1 + l2 > 0 ? "（其中 " + l1 + " 篇来自 1 级扩容、" + l2 + " 篇来自 2 级扩容，引用位置已标注）" : "";
     })();
-    const parts: string[] = ["双池检索完成：国内 " + cnFound + "/" + cnRequested + "、国外 " + enFound + "/" + enRequested + levelSummary];
+    const filterNote = filteredCn + filteredEn > 0 ? "；已过滤 " + (filteredCn + filteredEn) + " 篇主题不相关题录（仅保留命中主题术语的文献）" : "";
+    const parts: string[] = ["双池检索完成：国内 " + cnFound + "/" + cnRequested + "、国外 " + enFound + "/" + enRequested + levelSummary + filterNote];
     if (gapCn > 0 || gapEn > 0) {
       parts.push("真实公开数据源不足的部分未硬凑：" + (gapCn > 0 ? "国内缺 " + gapCn + " 篇，" : "") + (gapEn > 0 ? "国外缺 " + gapEn + " 篇" : "") + "；请用下方背景引用链接与跳转检索补充，或手动录入核心文献");
     }

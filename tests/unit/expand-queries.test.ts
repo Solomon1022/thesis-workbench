@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { expandQueries } from "../../src/main/literature-service";
+import { expandQueries, segmentKeywords } from "../../src/main/literature-service";
 
 describe("中文关键词多层扩词映射", () => {
   it("核心检索式 + 1级同义词替换 + 2级理论词组合", () => {
@@ -21,5 +21,16 @@ describe("中文关键词多层扩词映射", () => {
   it("无有效关键词时返回空（不编造检索式）", () => {
     expect(expandQueries([])).toEqual([]);
     expect(expandQueries(["a"])).toEqual([]);
+  });
+});
+
+describe("中文术语切词（词典最长匹配，避免整句跑偏）", () => {
+  it("整句选题被切成学术术语", () => {
+    const terms = segmentKeywords("AI虚拟主播的直播互动性对消费者购买意愿影响分析");
+    expect(terms.some((t) => t === "虚拟主播" || t === "AI虚拟主播")).toBe(true);
+    expect(terms).toContain("互动性");
+    expect(terms).toContain("购买意愿");
+    expect(terms.length).toBeLessThan(6);
+    expect(terms.join("").length).toBeLessThan("AI虚拟主播的直播互动性对消费者购买意愿影响分析".length);
   });
 });

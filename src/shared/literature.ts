@@ -324,7 +324,7 @@ export const SEED_LIBRARY: SeedDomain[] = [
   {
     key: "ecommerce-virtual-streamer",
     label: "电子商务 · AI虚拟主播/直播互动性/消费者购买意愿",
-    terms: ["虚拟主播", "数字人", "AI主播", "直播电商", "电商直播", "互动性", "购买意愿", "购买行为", "个性化推荐", "感知信任", "社会临场感", "感知价值", "拟人化", "消费者行为", "购买决策", "冲动购买"],
+    terms: ["虚拟主播", "数字人", "AI主播", "直播电商", "电商直播", "互动性", "购买意愿", "购买行为", "个性化推荐", "感知信任", "社会临场感", "感知价值", "拟人化", "消费者行为", "购买决策", "冲动购买", "virtual streamer", "AI virtual streamer", "social presence", "perceived value", "anthropomorphism", "interactivity", "presence", "purchase intention", "e-commerce live streaming", "live streaming commerce", "personalized recommendation", "AI anchor"],
     refs: [
       { title: "电商直播中虚拟主播互动性对消费者购买行为的影响", authors: "王翠翠, 徐静, 尚倩", year: "2023", venue: "经济与管理" },
       { title: "基于情景实验的数字人主播互动性对消费者购买意愿的影响研究", authors: "陈瑞华", year: "2024", venue: "商业经济研究" },
