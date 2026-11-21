@@ -264,3 +264,12 @@ body {
 .pref-options { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
 .platform-title { font-weight: 600; margin: 8px 0 4px; }
 .auto-history-list a { margin-left: 6px; }
+
+/* ReAct 关键词标签（垂直列表，每词一行，可点击删除） */
+.react-steps { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.kw-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.kw-tag { display: inline-flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 6px 12px; border: 1px solid var(--primary, #2563eb); border-radius: 16px; background: #eff6ff; color: #1d4ed8; font-size: 13px; cursor: pointer; }
+.kw-tag-result { border-color: #16a34a; background: #f0fdf4; color: #15803d; }
+.kw-tag-extra { border-color: #b45309; background: #fffbeb; color: #92400e; }
+.kw-x { font-weight: 700; opacity: 0.6; }
+.kw-tag:hover .kw-x { opacity: 1; }

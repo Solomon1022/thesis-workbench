@@ -59,11 +59,12 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     } catch { /* 忽略 */ }
     return { platformKeys: [], openAccessOnly: false, globalLibraries: false };
   });
-  const [keywordPlan, setKeywordPlan] = useState<{ subject: string[]; result: string[]; extra: string[]; queries: Array<{ zh: string; en: string | null; label: string; level: string }>; note: string; aiGenerated: boolean } | null>(null);
+  const [keywordPlan, setKeywordPlan] = useState<{ subject: string[]; result: string[]; extra: string[]; queries: Array<{ zh: string; en: string | null; label: string; level: string; pair: { sub: string; res: string } }>; note: string; aiGenerated: boolean } | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const [reactBusy, setReactBusy] = useState(false);
   const [reactOutcome, setReactOutcome] = useState<{ message: string; counts: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; verifyNote: string; needMore: boolean } | null>(null);
   const [researchedDois, setResearchedDois] = useState<string[]>([]);
+  const [removedTerms, setRemovedTerms] = useState<Set<string>>(new Set());
   const [prefModalOpen, setPrefModalOpen] = useState(false);
   const [preferredLinks, setPreferredLinks] = useState<Array<{ key: string; name: string; url: string }>>([]);
 
@@ -166,7 +167,14 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         ...researchedDois,
         ...extraExcludes,
       ];
-      const r = await a.reactExecuteSearch(projectId, keywordPlan, { cn: Number(autoCn) || 0, en: Math.max(0, totalNum - (Number(autoCn) || 0)), excludeDois });
+      const effectivePlan = {
+        ...keywordPlan,
+        subject: keywordPlan.subject.filter((s) => !removedTerms.has(s)),
+        result: keywordPlan.result.filter((s) => !removedTerms.has(s)),
+        extra: keywordPlan.extra.filter((s) => !removedTerms.has(s)),
+        queries: keywordPlan.queries.filter((q) => !removedTerms.has(q.pair.sub) && !removedTerms.has(q.pair.res)),
+      };
+      const r = await a.reactExecuteSearch(projectId, effectivePlan, { cn: Number(autoCn) || 0, en: Math.max(0, totalNum - (Number(autoCn) || 0)), excludeDois });
       setCandidates(r.results);
       setOutcomeMeta({ source: "ReAct 逐关键词检索", query: r.queriesUsed.join(" / "), status: "ok", message: r.message, time: new Date().toLocaleTimeString("zh-CN", { hour12: false }) });
       setAutoHistory((prev) => [{ at: new Date().toLocaleString("zh-CN"), queryUsed: r.queriesUsed, results: r.results, counts: r.counts }, ...prev].slice(0, 5));
@@ -392,22 +400,34 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         <div className="card-head-row">
           <h3 className="ai-title">一键自动找文献（ReAct 三步：优化关键词 → 逐关键词检索 → 核验）</h3>
         </div>
-        <div className="lit-search-row">
-          <button className="btn" disabled={planBusy || reactBusy} onClick={() => void runPlanKeywords()}>{planBusy ? "规划中…" : "① AI 优化关键词"}</button>
-          <button className="btn btn-primary" disabled={reactBusy || !keywordPlan} onClick={() => void runReactSearch()}>{reactBusy ? "检索中…" : "② AI 搜寻论文"}</button>
-          {reactOutcome && (reactOutcome.needMore || /未通过|再次/.test(reactOutcome.verifyNote)) && (
-            <button className="btn" disabled={reactBusy} onClick={() => void runReactSearch([])}>AI 再次查询（已排除上批文献）</button>
-          )}
+        <div className="react-steps">
+          <div className="lit-search-row">
+            <button className="btn" disabled={planBusy || reactBusy} onClick={() => void runPlanKeywords()}>{planBusy ? "规划中…" : "① AI 优化关键词（生成额外关键词标签）"}</button>
+          </div>
+          <div className="lit-search-row">
+            <button className="btn btn-primary" disabled={reactBusy || !keywordPlan} onClick={() => void runReactSearch()}>{reactBusy ? "检索中…" : "② AI 搜寻论文"}</button>
+            <span className="muted">{keywordPlan ? "先点上方标签删除不要的关键词，再执行检索" : "完成①后可用"}</span>
+          </div>
+          <div className="lit-search-row">
+            <button className="btn" disabled={reactBusy || !reactOutcome || (!reactOutcome.needMore && !/未通过|再次/.test(reactOutcome.verifyNote))} onClick={() => void runReactSearch([])}>AI 再次查询（已排除上批文献）</button>
+            <span className="muted">数量或主题不符时可用</span>
+          </div>
         </div>
         {keywordPlan && (
           <div className="keyword-plan">
-            <p className="muted">{keywordPlan.note}</p>
-            <div className="lit-suggest">
-              {keywordPlan.subject.map((s) => <span key={"s" + s} className="chip chip-on">主体：{s}</span>)}
-              {keywordPlan.result.map((s) => <span key={"r" + s} className="chip chip-on">结果：{s}</span>)}
-              {keywordPlan.extra.map((s) => <span key={"e" + s} className="chip">背景：{s}</span>)}
+            <p className="muted">{keywordPlan.note}。点击标签可删除不要的关键词。</p>
+            <div className="kw-list">
+              {keywordPlan.subject.filter((s) => !removedTerms.has(s)).map((s) => (
+                <button key={"s" + s} className="kw-tag" onClick={() => setRemovedTerms((prev) => new Set(prev).add(s))}>主体词：{s}<span className="kw-x">✕</span></button>
+              ))}
+              {keywordPlan.result.filter((s) => !removedTerms.has(s)).map((s) => (
+                <button key={"r" + s} className="kw-tag kw-tag-result" onClick={() => setRemovedTerms((prev) => new Set(prev).add(s))}>结果词：{s}<span className="kw-x">✕</span></button>
+              ))}
+              {keywordPlan.extra.filter((s) => !removedTerms.has(s)).map((s) => (
+                <button key={"e" + s} className="kw-tag kw-tag-extra" onClick={() => setRemovedTerms((prev) => new Set(prev).add(s))}>背景词：{s}<span className="kw-x">✕</span></button>
+              ))}
             </div>
-            <div className="muted">逐个检索计划（每次只用一组关键词，不合并搜索框）：{keywordPlan.queries.map((q) => q.label).join("；")}</div>
+            <div className="muted">逐个检索计划（每次只用一组关键词）：{keywordPlan.queries.filter((q) => !removedTerms.has(q.pair.sub) && !removedTerms.has(q.pair.res)).map((q) => q.label).join("；")}</div>
             <div className="lit-suggest">
               {keywordPlan.queries.slice(0, 4).map((q) => (
                 <button key={q.label} className="chip" onClick={() => openUrl("https://xueshu.baidu.com/s?wd=" + encodeURIComponent(q.zh))}>{q.label}（百度学术）</button>

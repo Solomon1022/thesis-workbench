@@ -168,6 +168,7 @@ export class AiAssistService {
       const formatHints = chunk.map((t) => {
         if (t.key === "variables") return "\"variables\" 字段的 content 必须是 JSON 对象：{\"iv\":[\"自变量\"],\"dv\":[\"因变量\"],\"mediator\":[\"中介变量\"],\"custom\":[\"其他变量\"]}，只输出 JSON，不要写说明文字；没有的数组留空 []。";
         if (t.key === "hypotheses") return "\"hypotheses\" 字段的 content 必须是 JSON 数组：[{\"number\":\"H1\",\"statement\":\"假设陈述\",\"iv\":\"自变量\",\"dv\":\"因变量\",\"basis\":\"依据或待核验\"}]，只输出 JSON 数组。";
+        if (t.key === "abstract_keywords") return "\"abstract_keywords\" 字段的 content 必须按格式：第一段为学术化摘要（研究对象、理论基础、变量维度、研究方法与作用路径）；第二行「关键词：词1；词2；词3；词4」恰好四个关键词、分号分隔、每个词 2-8 字。禁止编造数据与文献。";
         return "";
       }).filter(Boolean).join("\n");
       const systemParts = [

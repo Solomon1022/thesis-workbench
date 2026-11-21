@@ -84,6 +84,25 @@ export class ReactSearchService {
     return parts.join("\n");
   }
 
+  /** 关键词清洗：必须是「词」（2-10 字），句子式输出会被拆分或丢弃，杜绝把研究问题当关键词 */
+  private sanitizeTerms(terms: string[]): string[] {
+    const out: string[] = [];
+    for (const raw of terms) {
+      const t = String(raw ?? "").trim().replace(/[。.；;，,！!？?\s]+$/g, "");
+      if (!t) continue;
+      const sentenceLike = t.length > 10 || /是否|影响|研究|分析|作用|通过|显著|正向|负向|如何|提出|本文/.test(t);
+      if (!sentenceLike) {
+        if (!out.includes(t)) out.push(t);
+        continue;
+      }
+      // 句子式输出：尝试词典切词提取其中的术语
+      for (const piece of segmentKeywords(t)) {
+        if (piece.length >= 2 && piece.length <= 10 && !out.includes(piece)) out.push(piece);
+      }
+    }
+    return out.slice(0, 8);
+  }
+
   private parseJsonSafe(text: string): unknown {
     const { extractJson } = require("./stage4-service") as { extractJson: (t: string) => unknown };
     return extractJson(text);
@@ -143,11 +162,11 @@ export class ReactSearchService {
         const step3 = await model.generate(checkSystem, JSON.stringify(merged), 1200, 0.2);
         const ex3 = this.parseJsonSafe(step3) as { subject?: string[]; result?: string[]; extra?: string[] } | null;
         const final = ex3 ?? merged;
-        plan = this.buildPlan(final.subject ?? [], final.result ?? [], final.extra ?? [], cls, true);
+        plan = this.buildPlan(this.sanitizeTerms(final.subject ?? []), this.sanitizeTerms(final.result ?? []), this.sanitizeTerms(final.extra ?? []), cls, true);
       } catch { plan = null; }
     }
     if (!plan) {
-      plan = this.buildPlan(cls.subject, cls.result, [], cls, false);
+      plan = this.buildPlan(this.sanitizeTerms(cls.subject), this.sanitizeTerms(cls.result), [], cls, false);
     }
     return plan;
   }
@@ -269,6 +288,7 @@ export class ReactSearchService {
     const model = this.resolver();
     if (!model) {
       const pass = !outcome.needMore;
+      if (outcome.results.length === 0) return { verifyNote: "未检索到任何文献（国内外均为 0）：请删除部分关键词标签后重新检索，或点「AI 再次查询」", pass: false };
       return { verifyNote: pass ? "规则核验：数量与关键词踩点符合设定" : "规则核验：数量未达标，建议「AI 再次查询」", pass };
     }
     try {
