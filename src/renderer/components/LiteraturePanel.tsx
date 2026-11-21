@@ -68,6 +68,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const [kwHistIdx, setKwHistIdx] = useState(-1);
   const [kwAddText, setKwAddText] = useState("");
   const [kwAddKind, setKwAddKind] = useState<"subject" | "result" | "extra">("subject");
+  const [manualTerms, setManualTerms] = useState<Set<string>>(new Set());
   const [prefModalOpen, setPrefModalOpen] = useState(false);
   const [preferredLinks, setPreferredLinks] = useState<Array<{ key: string; name: string; url: string }>>([]);
 
@@ -179,6 +180,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
       [kwAddKind]: [...new Set([...(keywordPlan[kwAddKind] ?? []), term])],
       queries: [...keywordPlan.queries, { zh: term, en: null, label: kindLabel, level: "L1", pair: { sub: kwAddKind === "subject" ? term : "", res: kwAddKind === "result" ? term : "" } }],
     });
+    setManualTerms((prev) => new Set(prev).add(term));
     setKwAddText("");
   };
 
@@ -444,13 +446,15 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         {/* ① 关键词规划框 */}
         <div className="react-box">
           <div className="react-box-head">
-            <h4>① 关键词规划（AI 生成额外关键词，保留原有关键词与选题关键词）</h4>
+            <h4>① 关键词规划（读取第 0/1/2 阶段内容，AI 生成额外关键词）</h4>
             <button className="btn" disabled={planBusy || reactBusy} onClick={() => void runPlanKeywords()}>{planBusy ? "规划中…" : "生成关键词方案"}</button>
           </div>
-          <p className="muted">{keywordPlan ? keywordPlan.note : "点击上方按钮：读取第 0/1/2 阶段内容，提取关键词并延申同义词，结果输出到下方关键词输出框。"}</p>
-          <div className="kw-output">
+          {planBusy && <p className="muted">正在读取选题/摘要/关键词并生成…（推理模型较慢属正常，请稍候）</p>}
+
+          {/* AI 生成的关键词输出区（独立框，生成结果全部放这里） */}
+          <div className="kw-gen-box">
             <div className="kw-output-head">
-              <span className="kw-output-title">关键词输出框（从左到右摊开，点击标签可删除）</span>
+              <span className="kw-output-title">AI 生成的关键词（从左到右摊开，点击标签可删除）</span>
               <span className="kw-tools">
                 <button className="btn btn-sm" disabled={kwHistIdx <= 0} onClick={undoKw} title="撤销上一次增删">↩ 回退</button>
                 <button className="btn btn-sm" disabled={kwHistIdx >= kwHistory.length - 1} onClick={redoKw} title="重做">↪ 前进</button>
@@ -460,19 +464,32 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
               {keywordPlan && (
                 <>
                   {keywordPlan.subject.map((s) => (
-                    <button key={"s" + s} className="kw-tag" onClick={() => removeKw(s)}>主体词：{s}<span className="kw-x">✕</span></button>
+                    <button key={"s" + s} className="kw-tag" onClick={() => removeKw(s)}>{(manualTerms.has(s) ? "手动·" : "")}主体词：{s}<span className="kw-x">✕</span></button>
                   ))}
                   {keywordPlan.result.map((s) => (
-                    <button key={"r" + s} className="kw-tag kw-tag-result" onClick={() => removeKw(s)}>结果词：{s}<span className="kw-x">✕</span></button>
+                    <button key={"r" + s} className="kw-tag kw-tag-result" onClick={() => removeKw(s)}>{(manualTerms.has(s) ? "手动·" : "")}结果词：{s}<span className="kw-x">✕</span></button>
                   ))}
                   {keywordPlan.extra.map((s) => (
-                    <button key={"e" + s} className="kw-tag kw-tag-extra" onClick={() => removeKw(s)}>背景词：{s}<span className="kw-x">✕</span></button>
+                    <button key={"e" + s} className="kw-tag kw-tag-extra" onClick={() => removeKw(s)}>{(manualTerms.has(s) ? "手动·" : "")}背景词：{s}<span className="kw-x">✕</span></button>
                   ))}
                 </>
               )}
-              {(!keywordPlan || keywordPlan.subject.length + keywordPlan.result.length + keywordPlan.extra.length === 0) && (
-                <span className="muted">暂无关键词：点上方「生成关键词方案」，或在下方输入框手动添加。</span>
+              {!keywordPlan && (
+                <span className="muted">尚未生成：点上方「生成关键词方案」，生成结果会显示在本框内。</span>
               )}
+              {keywordPlan && keywordPlan.subject.length + keywordPlan.result.length + keywordPlan.extra.length === 0 && (
+                <span className="muted">生成结果为空：请确认第 0/1/2 阶段已填写选题/摘要/关键词内容，然后重新生成。</span>
+              )}
+            </div>
+            {keywordPlan && (
+              <div className="muted kw-meta">{keywordPlan.note} · 共 {keywordPlan.subject.length + keywordPlan.result.length + keywordPlan.extra.length} 个词 · 检索计划 {keywordPlan.queries.length} 组（逐词检索，不合并搜索框）</div>
+            )}
+          </div>
+
+          {/* 手动补充关键词输入框（独立，与 AI 生成区分开；添加后进入上方列表并标「手动」） */}
+          <div className="kw-manual-box">
+            <div className="kw-output-head">
+              <span className="kw-output-title">手动补充关键词输入框（额外补充自己想要的词）</span>
             </div>
             <div className="kw-add-row">
               <input className="input" aria-label="新增关键词" placeholder="输入要补充的关键词（2-10 字）" value={kwAddText} onChange={(e) => setKwAddText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addKw(); }} />
@@ -483,9 +500,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
               </select>
               <button className="btn btn-sm" disabled={!kwAddText.trim() || !keywordPlan} onClick={addKw}>添加</button>
             </div>
-            {keywordPlan && keywordPlan.queries.length > 0 && (
-              <div className="muted kw-queries">逐个检索计划（每次只用一组关键词）：{keywordPlan.queries.map((q) => q.label).join("；")}</div>
-            )}
+            <div className="muted">说明：这里只是手动加词；AI 生成的关键词显示在上方独立框内，两者不混放。</div>
           </div>
         </div>
 

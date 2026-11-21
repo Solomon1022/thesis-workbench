@@ -146,9 +146,11 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.getByRole("button", { name: /前期检索与选题/ }).click();
     await page.getByLabel("研究方向与关键词").fill("attention");
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
-    // 第一步：生成关键词方案（未配模型 → 词典确定性方案）→ 关键词输出框
+    // 第一步：生成关键词方案（未配模型 → 词典确定性方案）→ AI 生成结果框与手动输入框分离
+    await expect(page.locator(".kw-gen-box")).toBeVisible();
+    await expect(page.locator(".kw-manual-box")).toBeVisible();
     await page.getByRole("button", { name: "生成关键词方案" }).click();
-    await expect(page.getByText(/逐个检索计划/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/共 .* 个词/)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/主体词：/).first()).toBeVisible();
     // 关键词增删 + 回退前进
     await page.getByLabel("新增关键词").fill("直播电商");
