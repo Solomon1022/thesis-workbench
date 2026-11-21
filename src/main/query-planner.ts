@@ -1,7 +1,33 @@
 import {
   ACADEMIC_SYNONYMS, CN_EN_TERM_DICT, FORBIDDEN_SUBJECT_EXPANSIONS,
-  RESULT_WORD_DICT, RESULT_WORD_SUFFIX, SEED_LIBRARY,
+  RESULT_WORD_DICT, RESULT_WORD_SUFFIX,
 } from "../shared/literature";
+
+/** 词典词表（同义词键 + 中英词典键），按长度降序做最长匹配切词 */
+const SEG_DICT: string[] = (() => {
+  const s = new Set<string>();
+  for (const k of Object.keys(ACADEMIC_SYNONYMS)) { s.add(k); for (const x of ACADEMIC_SYNONYMS[k]) s.add(x); }
+  for (const k of Object.keys(CN_EN_TERM_DICT)) s.add(k);
+  return [...s].sort((a, b) => b.length - a.length);
+})();
+
+function SEGMENT_TERMS(text: string): string[] {
+  let remaining = String(text ?? "");
+  const out: string[] = [];
+  while (remaining.length > 0 && out.length < 6) {
+    let matched = false;
+    for (const t of SEG_DICT) {
+      if (remaining.startsWith(t)) {
+        out.push(t);
+        remaining = remaining.slice(t.length);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) remaining = remaining.slice(1);
+  }
+  return [...new Set(out)];
+}
 
 /** 核心词分类：主体词（自变量域）/ 结果词（因变量域，必选）/ 变量词（中介等） */
 export interface TermClassification {
@@ -20,16 +46,9 @@ export function isResultWord(term: string): boolean {
 
 /** 主体同义扩展：每个词衍生 3-4 个相关词；剔除禁止放宽的泛词与自身 */
 export function expandSubject(term: string): string[] {
+  // 只从同义词词典扩词；种子库术语绝不进入扩词（防止把其他选题的检索式带到本选题域）
   const banned = new Set(FORBIDDEN_SUBJECT_EXPANSIONS[term] ?? []);
-  const candidates = (ACADEMIC_SYNONYMS[term] ?? []).filter((s) => !banned.has(s) && s !== term);
-  for (const d of SEED_LIBRARY) {
-    for (const t of d.terms) {
-      if (t !== term && !banned.has(t) && !candidates.includes(t) && /[\u4e00-\u9fa5]/.test(t)) candidates.push(t);
-      if (candidates.length >= 6) break;
-    }
-    if (candidates.length >= 6) break;
-  }
-  return candidates.slice(0, 4);
+  return (ACADEMIC_SYNONYMS[term] ?? []).filter((s) => !banned.has(s) && s !== term).slice(0, 4);
 }
 
 /** 结果同义扩展（结果词必须命中，只允许同层级同义词） */
@@ -44,8 +63,14 @@ export function classifyTerms(topicText: string, variablesJson: string, segmente
   let mediator: string[] = [];
   try {
     const v = JSON.parse(variablesJson ?? "{}") as Record<string, string[]>;
-    const flat = (arr: string[] | undefined) => (arr ?? []).map((s) => String(s).trim()).filter(Boolean);
-    subject = flat(v.iv).filter((t) => !isResultWord(t));
+    // 变量值也做词典切词（如「AI虚拟主播直播互动性」→「AI虚拟主播」「互动性」）
+    const flat = (arr: string[] | undefined) => (arr ?? []).flatMap((s) => {
+      const t = String(s).trim();
+      if (!t) return [];
+      const seg = SEGMENT_TERMS(t);
+      return seg.length > 0 ? seg : [t];
+    });
+    subject = [...flat(v.iv), ...flat(v.custom)].filter((t) => !isResultWord(t));
     result = flat(v.dv);
     mediator = flat(v.mediator);
     const misplaced = subject.filter((t) => isResultWord(t));
@@ -87,7 +112,9 @@ export function planLevels(cls: TermClassification): PlannedQuery[] {
     return CN_EN_TERM_DICT[t] ?? (ACADEMIC_SYNONYMS[t]?.[0] ? CN_EN_TERM_DICT[ACADEMIC_SYNONYMS[t][0]] ?? "" : "");
   };
   const cnAnd = (terms: string[]) => terms.filter(Boolean).join(" AND ");
-  const enAnd = (terms: string[]) => terms.filter(Boolean).map((t) => (t.includes(" ") ? "\"" + t + "\"" : t)).join(" AND ");
+  const enTerm = (t: string): string => (t.includes(" ") ? "\"" + t + "\"" : t);
+  // OR 组作为一个整体（括号包裹），再与其余词 AND
+  const enAnd = (terms: string[]) => terms.filter(Boolean).map((t) => (t.includes(" OR ") ? "(" + t.split(" OR ").map(enTerm).join(" OR ") + ")" : enTerm(t))).join(" AND ");
   const subjectEn = [...new Set(cls.subject.map(enOf).filter(Boolean))];
   const resultEn = [...new Set(cls.result.map(enOf).filter(Boolean))];
   const mediatorEn = [...new Set(cls.mediator.map(enOf).filter(Boolean))];
@@ -119,14 +146,15 @@ export function planLevels(cls: TermClassification): PlannedQuery[] {
     });
   }
   if (cls.result.length > 0) {
-  plans.push({
-    level: "L3",
-    constraint: "同理论场景补充（理论词 AND 结果词）",
-    cnQuery: cnAnd(["直播电商 OR 电子商务", ...cls.result]),
-    enQuery: enAnd(["e-commerce live streaming OR live streaming commerce", ...resultEn]) || null,
-    countAsCore: false,
-    citeNote: "理论补充文献·支撑模型合理性，不计入核心配额",
-  });
+    // L3 理论补充：通用理论/机制词 + 结果词（不再硬编码任何具体领域，防止跨域跑偏）
+    plans.push({
+      level: "L3",
+      constraint: "同理论场景补充（通用理论/机制词 AND 结果词）",
+      cnQuery: cnAnd(["影响机制 OR 理论模型 OR 实证研究", ...cls.result]),
+      enQuery: enAnd(["influencing mechanism OR theoretical model OR empirical study", ...resultEn]) || null,
+      countAsCore: false,
+      citeNote: "理论补充文献·支撑模型合理性，不计入核心配额",
+    });
   }
   return plans;
 }

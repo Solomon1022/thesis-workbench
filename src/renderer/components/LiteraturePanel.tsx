@@ -349,7 +349,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
             <span className="muted">中文文献主检索源（带必选词约束的检索式，点击跳转官网检索后导入本库）：{autoState.cnJumpLinks[0]?.query ?? ""}</span>
             <div className="lit-suggest">
               {autoState.cnJumpLinks.map((l) => (
-                <button key={l.name} className="chip chip-on" onClick={() => openUrl(l.url)}>{l.name}</button>
+                <button key={l.name + l.query} className="chip chip-on" title={"检索式：" + l.query} onClick={() => openUrl(l.url)}>{l.name} · {l.query}</button>
               ))}
             </div>
           </div>

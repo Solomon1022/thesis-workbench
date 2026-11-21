@@ -162,13 +162,21 @@ export class LiteratureService {
       : clsBase;
     const plans = planLevels(cls);
 
-    // 中文池：必选词约束检索式 → 中文平台跳转（不爬取，用户检索后导入）
+    // 中文池：多组必选词检索式 → 中文平台跳转（不爬取，用户检索后导入）
     const cnJumpLinks: Array<{ name: string; url: string; query: string }> = [];
-    const l1 = plans.find((p) => p.level === "L1") ?? plans[0];
-    if (cnRequested > 0 && l1?.cnQuery) {
-      for (const pf of CN_SEARCH_PLATFORMS) {
-        const url = pf.searchTemplate ? pf.searchTemplate.replace("%s", encodeURIComponent(l1.cnQuery)) : "https://www.nssd.cn";
-        cnJumpLinks.push({ name: pf.name, url, query: l1.cnQuery });
+    if (cnRequested > 0) {
+      const jumpQueries: string[] = [];
+      const allQ = [...cls.subject, ...cls.result].join(" ");
+      if (allQ) jumpQueries.push(allQ);
+      for (const sub of [...cls.subjectExpansions].slice(0, 2)) {
+        const q = [sub, ...cls.result].join(" ");
+        if (q && !jumpQueries.includes(q)) jumpQueries.push(q);
+      }
+      for (const q of jumpQueries.slice(0, 2)) {
+        for (const pf of CN_SEARCH_PLATFORMS) {
+          const url = pf.searchTemplate ? pf.searchTemplate.replace("%s", encodeURIComponent(q)) : "https://www.nssd.cn";
+          cnJumpLinks.push({ name: pf.name, url, query: q });
+        }
       }
     }
 
@@ -191,7 +199,7 @@ export class LiteratureService {
       used.push(query);
       try {
         const [oa, cr] = await Promise.allSettled([
-          openalexSearch(query, { language: "en", rows: 20, signal: this.signalWithTimeout() }),
+          openalexSearch(query.replace(/\s+AND\s+/gi, " "), { language: "en", rows: 20, signal: this.signalWithTimeout() }),
           crossrefSearch(query, this.settings.getContactEmail(), this.signalWithTimeout(), { rows: 20 }),
         ]);
         if (oa.status === "fulfilled" && oa.value.status !== "error") {
@@ -208,9 +216,65 @@ export class LiteratureService {
     };
 
     for (const p of plans) {
-      if (!p.enQuery) continue;
       if (rawPool.length >= enRequested + 8) break;
-      await fetchEn(p.enQuery, p.level);
+      let enQ = p.enQuery;
+      if (!enQ) {
+        // 词典缺英文对应词时：词典硬匹配 + 可插拔模型布尔检索式兜底
+        const role = this.settings.resolveRole("search_assist");
+        const resolver: ForeignQueryResolver | null = role
+          ? {
+              generate: async (kws: string[]) => {
+                const raw = await chat({
+                  channel: role.channel,
+                  apiKey: role.apiKey,
+                  messages: [
+                    { role: "system", content: "你是学术检索助手。把中文研究关键词转换为学术数据库布尔检索式：用引号短语与 AND/OR 连接词；只输出检索式本身（不超过 100 字符），禁止输出句子、解释或翻译。" },
+                    { role: "user", content: "中文关键词：" + kws.join("、") },
+                  ],
+                  maxTokens: 120,
+                  temperature: 0.1,
+                  signal: this.signalWithTimeout(),
+                });
+                return raw;
+              },
+            }
+          : null;
+        const built = await buildForeignQuery([...cls.subject, ...cls.result], resolver);
+        if (built) enQ = built.query;
+      }
+      if (!enQ) continue;
+      await fetchEn(enQ, p.level);
+    }
+
+    // 中文池自动检索（补充发现：OpenAlex 中文子集；权威中文库请用跳转检索后导入）
+    // 检索式 = 主体词逐个 × 结果词（全文检索对单主体词+结果词的组合更精准）
+    const cnQueryList: Array<{ q: string; level: string }> = [];
+    const cnAll = [...cls.subject, ...cls.result].join(" ");
+    cnQueryList.push({ q: cnAll, level: "L0" });
+    for (const sub of [...cls.subject.slice(1), ...cls.subjectExpansions].slice(0, 5)) {
+      const q = [sub, ...cls.result].join(" ");
+      if (!cnQueryList.some((x) => x.q === q)) cnQueryList.push({ q, level: "L2" });
+    }
+    const cnRaw: Array<SearchOutcome["items"][number] & { level: string; citedBy?: number }> = [];
+    if (cnRequested > 0) {
+      for (const cq of cnQueryList) {
+        if (cnRaw.length >= cnRequested + 8) break;
+        used.push(cq.q);
+        const oaQ = cq.q.replace(/\s*AND\s*/g, " ").replace(/\s*OR\s*/g, " ");
+        try {
+          const outcome = await openalexSearch(oaQ, { language: "zh", rows: 30, signal: this.signalWithTimeout() });
+          for (const item of outcome.items) {
+            const typed = item as SearchOutcome["items"][number] & { citedBy?: number };
+            const key = item.doi || (item.title + "|" + item.authors);
+            const normTitle = normalizeTitle(item.title);
+            if (!key || seenKeys.has(key) || (normTitle && seenTitles.has(normTitle)) || exclude.has(item.doi)) continue;
+            seenKeys.add(key);
+            if (normTitle) seenTitles.add(normTitle);
+            cnRaw.push({ ...item, level: cq.level, citedBy: Number(typed.citedBy ?? 0) });
+          }
+          this.db.appendSearchLog(projectId, "openalex-zh", cq.q, cnRaw.length, "ok", "中文池自动检索（补充发现）");
+        } catch { /* 单源失败不阻塞 */ }
+      }
     }
 
     // P1 两层过滤
@@ -239,16 +303,39 @@ export class LiteratureService {
       return scoreOf(b) - scoreOf(a);
     });
 
+    // 中文池两道过滤（zh 硬过滤 + 相似度）
+    const cnFiltered: typeof cnRaw = [];
+    let cnHardDropped = 0;
+    let cnSimDropped = 0;
+    for (const item of cnRaw) {
+      if (!hardFilterPass(item.title, cls, "zh", item.level)) { cnHardDropped++; continue; }
+      const sim = ngramSimilarity(item.title + " " + item.abstract, topicText);
+      if (sim < 0.25) { cnSimDropped++; continue; }
+      (item as typeof item & { similarity: number }).similarity = sim;
+      cnFiltered.push(item);
+    }
+    cnFiltered.sort((a, b) => {
+      const scoreOf = (item: typeof cnRaw[number]) => {
+        const sim = (item as typeof item & { similarity: number }).similarity ?? 0;
+        const isCore = CORE_CN_JOURNALS.some((j) => (item.venue ?? "").includes(j));
+        return compositeScore({ similarity: sim, subjectHitInTitle: true, resultHitInTitle: true, isCoreJournal: isCore, citedBy: item.citedBy });
+      };
+      return scoreOf(b) - scoreOf(a);
+    });
+    const cnFound = Math.min(cnRequested, cnFiltered.length);
+
     const corePool = filtered.filter((i) => i.level !== "L3");
     const theoryPool = filtered.filter((i) => i.level === "L3");
     const enFound = Math.min(enRequested, corePool.length);
-    const results = [...corePool.slice(0, enFound), ...theoryPool.slice(0, Math.min(4, Math.max(0, enRequested - enFound)))].map((i) => {
+    const enSelected = corePool.slice(0, enFound);
+    const enTheory = theoryPool.slice(0, Math.min(4, Math.max(0, enRequested - enFound)));
+    const results = [...cnFiltered.slice(0, cnFound), ...enSelected, ...enTheory].map((i) => {
       const r = { ...i } as SearchOutcome["items"][number] & { level?: string; citedBy?: number; similarity?: number };
       return r;
     });
 
-    const counts = { cnRequested, enRequested, cnFound: 0, enFound };
-    const cnNote = "中文池不再使用外文平台：请点击下方「中文平台跳转检索」（检索式已带必选词约束），在百度学术/知网/万方/维普/NSSD 检索后把文献导入本库（合规：不爬取中文闭源平台，只提供元数据入口）；导入后国内配额才会累计";
+    const counts = { cnRequested, enRequested, cnFound, enFound };
+    const cnNote = "国内自动检索为 OpenAlex 中文子集「补充发现」（已过必选词硬过滤与相似度过滤，缺 " + Math.max(0, cnRequested - cnFound) + " 篇未硬凑）；权威中文库（知网/万方/维普/NSSD）请用下方跳转检索后导入本库，导入后计入国内配额";
 
     // 偏好平台跳转（偏向，非绝对）
     const preferredLinks: Array<{ key: string; name: string; url: string }> = [];
@@ -271,9 +358,9 @@ export class LiteratureService {
       { name: "行业报告·QuestMobile", url: "https://www.questmobile.com.cn/search?keyword=" + bgQ },
     ];
 
-    const filterNote = hardDropped + simDropped > 0 ? "；已过两道过滤闸：规则剔除 " + hardDropped + " 篇、语义相似度剔除 " + simDropped + " 篇" : "";
+    const filterNote = hardDropped + simDropped + cnHardDropped + cnSimDropped > 0 ? "；已过两道过滤闸：规则剔除 " + (hardDropped + cnHardDropped) + " 篇、语义相似度剔除 " + (simDropped + cnSimDropped) + " 篇" : "";
     const levelNote = theoryPool.length > 0 ? "；L3 理论补充文献不计入核心配额（已标注）" : "";
-    const parts: string[] = ["外文池检索完成：核心 " + enFound + "/" + enRequested + "、" + "国内 " + cnRequested + " 篇需在中文平台检索后导入" + levelNote + filterNote];
+    const parts: string[] = ["双池检索完成：国内 " + cnFound + "/" + cnRequested + "（OpenAlex 中文子集补充发现）、国外 " + enFound + "/" + enRequested + levelNote + filterNote];
     if (results.length === 0) {
       return { ok: false, message: parts.join("，") + "（真实检索 0 条）", queryUsed: used, results, counts, cnNote, preferredLinks, backgroundLinks, cnJumpLinks };
     }
