@@ -205,7 +205,7 @@ export function refTypeFromCrossrefType(type: string): RefTypeKey {
   return "other";
 }
 
-/** 中文关键词扩词库（学术同义词；人工维护，可按需扩展） */
+/** 学术术语词典（同义词扩词；人工维护，可按需扩展） */
 export const ACADEMIC_SYNONYMS: Record<string, string[]> = {
   "虚拟主播": ["虚拟数字人", "数字人主播", "AI主播", "智能主播", "虚拟形象"],
   "数字人": ["虚拟人", "虚拟数字人", "虚拟主播", "数智人"],
@@ -215,19 +215,140 @@ export const ACADEMIC_SYNONYMS: Record<string, string[]> = {
   "社会临场感": ["社会存在感", "临场感", "在场感"],
   "个性化推荐": ["个性化服务", "推荐系统", "智能推荐", "定制化推荐"],
   "消费者行为": ["消费者决策", "购买决策", "消费心理"],
+  "感知信任": ["信任", "消费者信任", "信任机制"],
+  "感知价值": ["感知收益", "价值感知", "消费者感知价值"],
+  "冲动购买": ["冲动性购买", "冲动消费", "非计划购买"],
+  "品牌忠诚": ["品牌忠诚度", "顾客忠诚", "重复购买意愿"],
+  "用户生成内容": ["UGC", "用户原创内容", "消费者生成内容"],
+  "短视频": ["短视频平台", "抖音", "短视频营销"],
+  "满意度": ["顾客满意", "用户满意度", "满意程度"],
   "S-O-R": ["刺激机体反应", "刺激-有机体-反应", "SOR模型"],
   "计划行为理论": ["TPB", "计划行为模型"],
   "技术接受模型": ["TAM", "技术采纳模型"],
+  "期望确认模型": ["ECM", "期望确认理论"],
+  "中介效应": ["中介作用", "中介机制", "传导机制"],
+  "调节效应": ["调节作用", "调节机制", "边界条件"],
+  "结构方程": ["结构方程模型", "SEM", "路径分析"],
+  "拟人化": ["类人化", "人格化", "拟人特征"],
+  "在线购物": ["网络购物", "线上消费", "网购"],
+  "社交媒体": ["社会化媒体", "社交平台", "新媒体"],
 };
 
-/** 内置中文核心期刊名单（人工维护的常见核心期刊；用于排序权重，不是官方接口） */
+/** 中英学术术语硬词典（词典硬匹配 → 布尔检索式基底；模型只做补全与逻辑组合） */
+export const CN_EN_TERM_DICT: Record<string, string> = {
+  "购买意愿": "purchase intention",
+  "购买意向": "purchase intention",
+  "购买行为": "purchase behavior",
+  "消费意愿": "consumption willingness",
+  "消费者行为": "consumer behavior",
+  "购买决策": "purchase decision",
+  "冲动购买": "impulse buying",
+  "冲动消费": "impulse buying",
+  "直播电商": "live streaming e-commerce",
+  "电商直播": "e-commerce live streaming",
+  "直播带货": "livestream selling",
+  "网络直播": "webcast",
+  "互动性": "interactivity",
+  "交互性": "interactivity",
+  "社会临场感": "social presence",
+  "临场感": "presence",
+  "虚拟主播": "virtual streamer",
+  "虚拟数字人": "virtual digital human",
+  "数字人": "digital human",
+  "AI主播": "AI anchor",
+  "AI虚拟主播": "AI virtual streamer",
+  "个性化推荐": "personalized recommendation",
+  "推荐系统": "recommendation system",
+  "智能推荐": "intelligent recommendation",
+  "信任": "trust",
+  "感知信任": "perceived trust",
+  "感知价值": "perceived value",
+  "消费者": "consumer",
+  "电子商务": "e-commerce",
+  "在线购物": "online shopping",
+  "用户生成内容": "user-generated content",
+  "短视频": "short video",
+  "社交媒体": "social media",
+  "满意度": "satisfaction",
+  "品牌忠诚": "brand loyalty",
+  "中介效应": "mediation effect",
+  "调节效应": "moderation effect",
+  "结构方程模型": "structural equation model",
+  "影响因素": "influencing factors",
+  "实证研究": "empirical study",
+  "拟人化": "anthropomorphism",
+  "大学生": "college students",
+  "消费者信任": "consumer trust",
+  "感知控制感": "perceived control",
+  "感知质量": "perceived quality",
+};
+
+/** 第一层：中文核心期刊名录加权（按学科分组，人工维护的常见核心/权威期刊；用于排序权重，非官方接口） */
 export const CORE_CN_JOURNALS: string[] = [
+  // 经济管理 / 市场营销 / 电子商务
   "经济与管理", "商业经济研究", "企业经济", "管理评论", "管理世界", "南开管理评论",
   "北京理工大学学报", "东华理工大学学报", "时代经贸", "现代商业", "商业观察",
-  "营销界", "新闻与传播研究", "国际新闻界", "现代传播", "电子商务评论",
-  "运筹与模糊学", "管理科学学报", "中国管理科学", "外国经济与管理", "软科学",
+  "营销界", "电子商务评论", "运筹与模糊学", "管理科学学报", "中国管理科学",
+  "外国经济与管理", "软科学", "经济管理", "当代财经", "财经理论与实践",
+  "中国流通经济", "商业研究", "价格理论与实践", "宏观经济研究", "经济学家",
+  // 新闻传播 / 新媒体
+  "新闻与传播研究", "国际新闻界", "现代传播", "新闻大学", "新闻记者", "新闻界",
+  "当代传播", "编辑之友", "出版发行研究", "中国出版", "新闻与写作",
+  // 心理 / 教育
+  "心理学报", "心理科学", "心理科学进展", "心理发展与教育", "应用心理学",
+  "教育研究", "高等教育研究", "电化教育研究", "中国电化教育", "现代教育技术",
+  "开放教育研究", "远程教育杂志",
+  // 计算机 / 信息
+  "计算机学报", "软件学报", "计算机研究与发展", "中文信息学报", "图书情报工作",
+  "情报学报", "情报理论与实践", "数据分析与知识发现",
+  // 社会科学综合
+  "社会学研究", "社会", "中国工业经济", "数量经济技术经济研究", "统计研究",
+  "调研世界", "消费经济", "市场研究",
+  // 学报类（高校学报人文社科版常见核心）
+  "中国人民大学学报", "北京大学学报", "清华大学学报", "武汉大学学报", "中山大学学报",
+  "厦门大学学报", "山东大学学报", "四川大学学报", "华中师范大学学报", "陕西师范大学学报",
 ];
 
+/** 第二层：领域标杆文献种子库（按领域组织；电子商务/消费者行为域以真实固定文献清单为种子锚点）
+ *  用途：1) 抽取领域核心术语用于相关度加权；2) 种子文献本身作为该领域的标杆锚点（真实题录，不编造）。 */
+export interface SeedRef { title: string; authors: string; year: string; venue: string; }
+export interface SeedDomain {
+  key: string;
+  label: string;
+  /** 从种子文献中提炼的领域核心术语（用于相关度加权与扩词） */
+  terms: string[];
+  /** 该领域的标杆文献锚点（真实题录） */
+  refs: SeedRef[];
+}
+export const SEED_LIBRARY: SeedDomain[] = [
+  {
+    key: "ecommerce-virtual-streamer",
+    label: "电子商务 · AI虚拟主播/直播互动性/消费者购买意愿",
+    terms: ["虚拟主播", "数字人", "AI主播", "直播电商", "电商直播", "互动性", "购买意愿", "购买行为", "个性化推荐", "感知信任", "社会临场感", "感知价值", "拟人化", "消费者行为", "购买决策", "冲动购买"],
+    refs: [
+      { title: "电商直播中虚拟主播互动性对消费者购买行为的影响", authors: "王翠翠, 徐静, 尚倩", year: "2023", venue: "经济与管理" },
+      { title: "基于情景实验的数字人主播互动性对消费者购买意愿的影响研究", authors: "陈瑞华", year: "2024", venue: "商业经济研究" },
+      { title: "电商AI主播特征影响消费者购买意愿的机制——基于技术感知与社会互动双重视角", authors: "李茸, 马宝龙, 张鹏, 等", year: "2025", venue: "北京理工大学学报(社会科学版)" },
+      { title: "AI虚拟主播对消费者购买意愿的影响研究", authors: "秦芬, 郭海玲", year: "2025", venue: "企业经济" },
+      { title: "电商直播中虚拟主播特征对消费者购买意愿的影响研究", authors: "侯萍, 林慧琳", year: "2025", venue: "电子商务评论" },
+      { title: "数字消费视域下AI主播特征对直播观众购买意愿的影响", authors: "张启尧, 孔媛媛", year: "2026", venue: "东华理工大学学报(社会科学版)" },
+      { title: "从\u201c被看见\u201d到\u201c被计算\u201d：AI数字人直播电商中的消费者感知控制感与购买意愿", authors: "张世超", year: "2026", venue: "商业观察" },
+      { title: "智能驱动型虚拟数字人电商主播对消费者购买意愿的影响", authors: "秦雪冰, 魏羽笛", year: "2025", venue: "新媒体与社会" },
+      { title: "直播商务中虚拟主播对消费者购买意愿的影响研究", authors: "乔飞燕", year: "2023", venue: "运筹与模糊学" },
+      { title: "AI虚拟主播对消费者购买意愿的影响", authors: "原宇", year: "2026", venue: "哈尔滨学院学报" },
+      { title: "虚拟主播特征对消费者购买意愿的影响——基于感知信任视角", authors: "钱晓傲, 刘家国", year: "2025", venue: "时代经贸" },
+      { title: "虚拟主播类型对大学生服装消费购买意愿的影响机制", authors: "宋宜诺", year: "2026", venue: "纺织科技进展" },
+      { title: "AI驱动下电商平台个性化推荐对消费者决策的影响机理及其优化策略", authors: "王诗淇", year: "2025", venue: "营销界" },
+      { title: "电商平台个性化推荐服务对大学生购买意愿的影响因素研究", authors: "董金金, 齐歌祺", year: "2026", venue: "现代商业" },
+      { title: "个性化推荐系统对消费者购买行为的影响机制研究", authors: "胡淑瑞", year: "2025", venue: "商业观察" },
+      { title: "人工智能推荐对消费者在线购买意愿的影响——基于顾客感知质量的中介效应", authors: "陈土霞, 张帆", year: "2023", venue: "时代经贸" },
+      { title: "直播电商平台个性化推荐对消费者决策行为的影响研究", authors: "邓琳佳", year: "2025", venue: "中小企业管理与科技" },
+      { title: "个性化智能推荐对消费者在线冲动购买意愿的影响研究", authors: "范文芳, 王千", year: "2022", venue: "管理评论" },
+      { title: "Impact of AI-generated virtual streamer interaction on consumer purchase intention: A focus on social presence and perceived value", authors: "Liu H, Zhang P, Cheng H, et al", year: "2025", venue: "Journal of Retailing and Consumer Services" },
+      { title: "Virtual streamers, real purchases: the roles of anthropomorphism, interactivity, and presence in e-commerce live streaming", authors: "Yu T, Zeng Z, Liu T, et al", year: "2026", venue: "International Journal of Contemporary Hospitality Management" },
+    ],
+  },
+];
 /** 分级扩容标签（1/2 级可计入学术文献；3/4 级只是背景引用，不计入配额） */
 export const EXPANSION_LEVELS = {
   core: { label: "核心主题", cite: "文献综述·核心变量研究，正常引用" },

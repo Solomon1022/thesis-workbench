@@ -9,7 +9,8 @@ import { openalexSearch } from "./adapters/openalex";
 import { arxivSearch } from "./adapters/arxiv";
 import { pubmedSearch } from "./adapters/pubmed";
 import { normalizeDoi, normalizeTitle } from "../shared/bibparse";
-import { ACADEMIC_SYNONYMS, CORE_CN_JOURNALS, MAJOR_PLATFORM_GROUPS } from "../shared/literature";
+import { ACADEMIC_SYNONYMS, CORE_CN_JOURNALS, MAJOR_PLATFORM_GROUPS, SEED_LIBRARY } from "../shared/literature";
+import { buildForeignQuery, type ForeignQueryResolver } from "./query-builder";
 import type { EvidenceCard, LiteratureItem, LiteratureSource, SearchLogEntry, SearchOutcome } from "../shared/literature";
 
 export type LiteratureInput = Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt" | "refType" | "region"> & Partial<Pick<LiteratureItem, "refType" | "region">>;
@@ -186,26 +187,29 @@ export class LiteratureService {
       } catch { /* 单个源失败不阻塞另一源 */ }
     };
 
-    // 国外池缺少英文检索式时：用配置的检索辅助角色把中文关键词翻译成英文检索式（真实库检索，不编造文献）
+    // 国外池缺少英文检索式时：词典硬匹配 + 可插拔模型布尔检索式（真实库检索，不编造文献）
     if (enQueries.length === 0 && cnKeywords.length > 0) {
       const role = this.settings.resolveRole("search_assist");
-      if (role) {
-        try {
-          const translated = await chat({
-            channel: role.channel,
-            apiKey: role.apiKey,
-            messages: [
-              { role: "system", content: "你是学术检索助手。把给定的中文研究关键词翻译成适合学术数据库检索的英文检索式。只输出检索式本身（空格分隔），不要解释。" },
-              { role: "user", content: "中文关键词：" + cnKeywords.slice(0, 4).join("、") },
-            ],
-            maxTokens: 120,
-            temperature: 0.1,
-            signal: this.signalWithTimeout(),
-          });
-          const t = translated.trim().slice(0, 120);
-          if (t) enQueries.push(t);
-        } catch { /* 翻译失败则如实缺国外池 */ }
-      }
+      const resolver: ForeignQueryResolver | null = role
+        ? {
+            generate: async (kws: string[]) => {
+              const raw = await chat({
+                channel: role.channel,
+                apiKey: role.apiKey,
+                messages: [
+                  { role: "system", content: "你是学术检索助手。把中文研究关键词转换为学术数据库布尔检索式：用引号短语与 AND/OR 连接词；只输出检索式本身（不超过 100 字符），禁止输出句子、解释或翻译。" },
+                  { role: "user", content: "中文关键词：" + kws.join("、") },
+                ],
+                maxTokens: 120,
+                temperature: 0.1,
+                signal: this.signalWithTimeout(),
+              });
+              return raw;
+            },
+          }
+        : null;
+      const built = await buildForeignQuery(cnKeywords.slice(0, 4), resolver);
+      if (built) enQueries.push(built.query);
     }
     // 国外池
     for (const q of enQueries.slice(0, 3)) {
