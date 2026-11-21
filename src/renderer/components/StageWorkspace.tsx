@@ -130,7 +130,7 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
     onStatus(stageKey, next, reason);
   };
 
-  // 问卷方法的选题阶段：研究对象与场景用变量编辑器替代 direction 字段
+  // 问卷方法：研究对象与场景用变量编辑器替代 direction 字段；其他方法保留 direction
   const hideDirectionField = stageKey === "topic" && detail.project.researchMethod === "questionnaire";
   const visibleFields = hideDirectionField ? fields.filter((f) => f.key !== "direction") : fields;
 
@@ -142,10 +142,10 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
 
   const aiTargets: AiTarget[] = (() => {
     if (stageKey === "topic") {
-      const t: AiTarget[] = [];
-      if (detail.project.researchMethod === "questionnaire") {
-        t.push({ key: "variables", label: "研究对象变量（自变量/因变量/中介变量）", kind: "variables" });
-      } else {
+      const t: AiTarget[] = [
+        { key: "variables", label: "研究对象变量（自变量/因变量/中介变量/自定义）", kind: "variables" as const },
+      ];
+      if (detail.project.researchMethod !== "questionnaire") {
         t.push({ key: "direction", label: "研究方向与关键词" });
       }
       t.push({ key: "candidates", label: "候选研究问题" });
@@ -292,7 +292,7 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
             </div>
           )}
 
-          {stageKey === "topic" && detail.project.researchMethod === "questionnaire" && (
+          {stageKey === "topic" && (
             <div className="var-editor-wrap">
               <VariableEditor value={variablesJson} onChange={setVariables} />
             </div>
