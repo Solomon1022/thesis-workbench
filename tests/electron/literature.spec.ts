@@ -97,6 +97,12 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
     await page.getByRole("button", { name: "开始此阶段" }).click();
     await expect(page.getByText("检索与核验（真实学术数据源）")).toBeVisible();
+    // 平台导航（来源于平台导航清单，主要平台）
+    await expect(page.getByText("论文检索平台导航（内置检索 + 主要平台跳转，来源于平台导航清单）")).toBeVisible();
+    await page.getByText("论文检索平台导航（内置检索 + 主要平台跳转，来源于平台导航清单）").click();
+    await expect(page.getByText("中文主要平台（中国大陆，68–78）")).toBeVisible();
+    await expect(page.getByRole("button", { name: "中国知网 CNKI" })).toBeVisible();
+    await page.getByText("论文检索平台导航（内置检索 + 主要平台跳转，来源于平台导航清单）").click();
 
     // 0) 一键自动找文献（基于选题内容，输出真实地址，不保存）
     await page.getByRole("button", { name: /前期检索与选题/ }).click();
@@ -114,6 +120,9 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" }).getByRole("button", { name: "保存" }).click();
     await expect(page.getByText(/已保存：Attention/)).toBeVisible();
     await expect(page.locator(".lit-item").filter({ hasText: "Attention is all you need" }).getByText("已核验", { exact: true })).toBeVisible();
+    // 文献形式与国内外区分徽章（Crossref proceedings → 会议论文；英文题名初判国外）
+    await expect(page.locator(".lit-item").filter({ hasText: "Attention is all you need" }).getByText("会议论文·中等（顶会除外）")).toBeVisible();
+    await expect(page.locator(".lit-item").filter({ hasText: "Attention is all you need" }).getByText("国外", { exact: true }).first()).toBeVisible();
 
     // 2) DOI 核验 → 保存 → 重复保存被去重
     await page.getByLabel("DOI 核验").fill("10.5555/deep-residual");
@@ -131,8 +140,18 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.locator(".lit-candidate").filter({ hasText: "Diffusion Models Beat GANs" }).getByRole("button", { name: "保存" }).click();
     await expect(page.locator(".lit-item").filter({ hasText: "Diffusion Models Beat GANs" }).getByText("预印本", { exact: true })).toBeVisible();
 
+    // 4a) 手动录入的「AI 检索」：粘贴引文 → AI 检索真实 Crossref → 采用题录
+    await page.getByLabel("参考文献引用").fill("Attention is all you need. NeurIPS, 2017.");
+    await page.getByRole("button", { name: "AI 检索" }).click();
+    await expect(page.locator(".ai-search-results")).toContainText("检索式：", { timeout: 30_000 });
+    await page.locator(".ai-search-results .lit-candidate").filter({ hasText: "Attention is all you need" }).getByRole("button", { name: "采用此记录" }).click();
+    await expect(page.getByLabel("参考文献引用")).toHaveValue(/Attention is all you need/);
+    await expect(page.getByLabel("核验说明")).toHaveValue(/AI 检索核验/);
+
     // 4) 手动录入（待核验）→ 人工核验（已核验）
     await page.getByLabel("参考文献引用").fill("张三, 李四. 手动录入的文献研究[J]. 测试期刊, 2020, 1(1): 1-10.");
+    await page.getByLabel("手动文献形式").selectOption("journal");
+    await page.getByLabel("手动国内外").selectOption("domestic");
     await page.getByRole("button", { name: "保存记录" }).click();
     const manualItem = page.locator(".lit-item").filter({ hasText: "手动录入的文献研究" });
     await expect(manualItem.getByText("待核验", { exact: true })).toBeVisible();

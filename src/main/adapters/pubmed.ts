@@ -1,4 +1,5 @@
 import { fetch } from "undici";
+import { guessRegion } from "../../shared/literature";
 import type { SearchOutcome } from "../../shared/literature";
 
 const REAL_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
@@ -38,6 +39,8 @@ export async function pubmedSearch(query: string, signal?: AbortSignal): Promise
       abstract: "",
       source: "pubmed" as const,
       preprint: false,
+      refType: "journal" as const,
+      region: guessRegion(String(row.title ?? ""), String(row.fulljournalname ?? "")),
     };
   }).filter((i) => i.title);
   return {

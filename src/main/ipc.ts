@@ -47,6 +47,8 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("literature:list", (_e, projectId: string) => db.listLiterature(projectId));
   ipcMain.handle("literature:search", (_e, projectId: string, source: string, query: string) => literature.search(projectId, source, query));
   ipcMain.handle("literature:autoSearch", (_e, projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[] }) => literature.autoSearch(projectId, opts));
+  ipcMain.handle("literature:updateMeta", (_e, projectId: string, literatureId: string, patch: { refType?: string; region?: string }) => literature.updateMeta(projectId, literatureId, patch));
+  ipcMain.handle("literature:manualAiSearch", (_e, projectId: string, citation: string) => literature.manualAiSearch(projectId, citation));
   ipcMain.handle("literature:lookupDoi", (_e, doi: string) => literature.lookupDoi(doi));
   ipcMain.handle("literature:save", (_e, projectId: string, input: LiteratureInput, opts: { note?: string; manuallyVerified?: boolean }) => literature.saveItem(projectId, input, opts ?? {}));
   ipcMain.handle("literature:verifyManual", (_e, id: string, note: string) => literature.verifyManual(id, note));

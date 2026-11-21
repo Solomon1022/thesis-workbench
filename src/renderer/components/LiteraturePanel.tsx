@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProjectDetail } from "../../shared/types";
 import type { EvidenceCard, LiteratureItem, SearchLogEntry, SearchOutcome } from "../../shared/literature";
-import { CN_PLATFORMS, LITERATURE_SOURCE_LABEL, VERIFIED_STATUS_LABEL } from "../../shared/literature";
+import { CN_PLATFORMS, LITERATURE_SOURCE_LABEL, MAJOR_PLATFORM_GROUPS, REF_TYPES, REF_TYPE_LABEL, REF_TYPE_PRIORITY, REGION_LABEL, VERIFIED_STATUS_LABEL } from "../../shared/literature";
 import { parseBibTeX, parseRIS, type ParsedReference } from "../../shared/bibparse";
 
 const api = () => window.thesisWorkbench;
@@ -31,6 +31,10 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [outcomeMeta, setOutcomeMeta] = useState<{ source: string; query: string; status: string; message: string; time: string } | null>(null);
   const [manual, setManual] = useState({ citation: "", abstract: "", note: "" });
+  const [manualRefType, setManualRefType] = useState("other");
+  const [manualRegion, setManualRegion] = useState<"domestic" | "foreign" | "unknown">("unknown");
+  const [aiSearchBusy, setAiSearchBusy] = useState(false);
+  const [aiSearchState, setAiSearchState] = useState<{ ok: boolean; message: string; queryUsed: string; results: Candidate[] } | null>(null);
   const [manualVerify, setManualVerify] = useState(false);
   const [importText, setImportText] = useState("");
   const [importPreview, setImportPreview] = useState<ParsedReference[]>([]);
@@ -137,6 +141,38 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     }
   };
 
+  const runManualAiSearch = async () => {
+    const a = api();
+    if (!a || aiSearchBusy) return;
+    setAiSearchBusy(true);
+    setError("");
+    try {
+      const r = await a.literatureManualAiSearch(projectId, manual.citation);
+      setAiSearchState(r);
+      setMessage(r.message);
+      if (!r.ok) setError(r.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiSearchBusy(false);
+    }
+  };
+
+  const adoptAiResult = (c: Candidate) => {
+    const typed = c as Candidate & { refType?: string; region?: string };
+    const typeLabel = typed.refType ? REF_TYPE_LABEL[typed.refType] ?? "其他" : "其他";
+    const yearPart = c.year ? ", " + c.year + "." : ".";
+    const venuePart = c.venue ? " " + c.venue + (c.venue.endsWith(".") ? "" : ".") : "";
+    setManual({
+      citation: c.authors + ". " + c.title + "[" + (typeLabel === "期刊论文" ? "J" : typeLabel === "学位论文" ? "D" : typeLabel === "会议论文" ? "C" : typeLabel === "预印本论文" ? "A" : "M") + "]." + venuePart + yearPart,
+      abstract: c.abstract,
+      note: "AI 检索核验：" + (c.doi ? "DOI: " + c.doi + "；" : "") + (c.url ? "链接: " + c.url : ""),
+    });
+    if (typed.refType) setManualRefType(typed.refType);
+    if (typed.region) setManualRegion(typed.region as "domestic" | "foreign" | "unknown");
+    setMessage("已采用该题录填入表单（可继续修改后保存）");
+  };
+
   const saveCandidate = async (c: Candidate, note?: string) => {
     const a = api();
     if (!a) return;
@@ -164,6 +200,8 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         abstract: manual.abstract.trim(),
         source: "manual",
         preprint: false,
+        refType: manualRefType,
+        region: manualRegion,
       }, { manuallyVerified: manualVerify, note: manual.note.trim() });
       setMessage(r.message);
       if (r.saved) { setManual({ citation: "", abstract: "", note: "" }); setManualVerify(false); void refresh(); }
@@ -290,6 +328,28 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
           </details>
         )}
       </section>
+      <details className="lit-log">
+        <summary>论文检索平台导航（内置检索 + 主要平台跳转，来源于平台导航清单）</summary>
+        <p className="muted">内置 Crossref / arXiv / PubMed 直接返回结果；其余主要平台点击「去检索」用当前检索式跳转官网检索（检索式为空时打开平台首页）。平台知名度不等于论文质量，引用前请核对期刊、作者、年份、DOI 与同行评审状态；预印本仅作补充。</p>
+        {MAJOR_PLATFORM_GROUPS.map((g) => (
+          <div key={g.title} className="platform-group">
+            <div className="muted platform-title">{g.title}</div>
+            <div className="lit-suggest">
+              {g.items.map((p) => (
+                <button key={p.key} className="chip" title={p.note ?? p.tag}
+                  onClick={() => {
+                    const q = query.trim();
+                    const url = p.searchTemplate && q ? p.searchTemplate.replace("%s", encodeURIComponent(q)) : (p.searchTemplate ?? "https://www.google.com/search?q=" + (q ? encodeURIComponent(p.name + " " + q) : encodeURIComponent(p.name)));
+                    openUrl(url);
+                  }}>
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        <p className="muted">完整清单共 89 个平台（含学科门类速查表与调用顺序），见「论文检索平台导航清单」；应用内收录主要平台。</p>
+      </details>
       <section className="card">
         <h2 className="card-title">检索与核验（真实学术数据源）</h2>
         <p className="muted">检索与 DOI 核验均直接调用公开学术数据源，不生成、不虚构文献。真实检索式、来源与时间会记入检索记录。</p>
@@ -325,7 +385,11 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
             {candidates.map((c, i) => (
               <div key={i} className="lit-candidate">
                 <div className="lit-candidate-main">
-                  <div className="lit-title">{c.title}{c.preprint && <span className="badge badge-warn">预印本</span>}</div>
+                  <div className="lit-title">{c.title}
+                    {(c as Candidate & { refType?: string }).refType && <span className="badge badge-done">{REF_TYPE_LABEL[(c as Candidate & { refType?: string }).refType as string] ?? "其他"}·{REF_TYPE_PRIORITY[(c as Candidate & { refType?: string }).refType as string] ?? "—"}</span>}
+                    {(c as Candidate & { region?: string }).region && <span className="badge">{REGION_LABEL[(c as Candidate & { region?: string }).region as "domestic" | "foreign" | "unknown"] ?? "待区分"}</span>}
+                    {c.preprint && <span className="badge badge-warn">预印本</span>}
+                  </div>
                   <div className="muted">{c.authors}{c.year ? "（" + c.year + "）" : ""}{c.venue ? " · " + c.venue : ""}</div>
                   <div className="muted">DOI: {c.doi || "无"}</div>
                   {c.url && <div className="muted lit-url">来源地址：<a href={c.url} onClick={(e) => { e.preventDefault(); openUrl(c.url); }}>{c.url}</a></div>}
@@ -344,9 +408,49 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         <h2 className="card-title">手动录入（参考文献引用 + 摘要）</h2>
         <p className="muted">直接粘贴完整参考文献引用（作者、标题、年份、期刊等都包含在里面即可），再补充摘要。手动录入默认标记为「待核验」；勾选人工核验后标记为「已核验」。DOI 与年份会自动从引文中识别。</p>
         <div className="field"><label>参考文献引用</label><textarea className="textarea" aria-label="参考文献引用" placeholder="如：王翠翠, 徐静, 尚倩. 电商直播中虚拟主播互动性对消费者购买行为的影响[J]. 经济与管理, 2023, 37(2): 84-92." value={manual.citation} onChange={(e) => setManual((m) => ({ ...m, citation: e.target.value }))} /></div>
+        <div className="form-grid">
+          <div className="field">
+            <label>文献形式（引用优先级）</label>
+            <select className="select" aria-label="手动文献形式" value={manualRefType} onChange={(e) => setManualRefType(e.target.value)}>
+              {REF_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}（{t.priority}）</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>国内外区分</label>
+            <select className="select" aria-label="手动国内外" value={manualRegion} onChange={(e) => setManualRegion(e.target.value as "domestic" | "foreign" | "unknown")}>
+              <option value="unknown">待区分（需人工确认作者单位与出版地）</option>
+              <option value="domestic">国内（境内单位 · CN 刊号/国内会议/国内出版社）</option>
+              <option value="foreign">国外（境外单位 · 境外期刊/国际会议/境外出版社）</option>
+            </select>
+          </div>
+        </div>
         <div className="field"><label>摘要</label><textarea className="textarea" aria-label="手动摘要" placeholder="该文献的研究内容摘要（选填）" value={manual.abstract} onChange={(e) => setManual((m) => ({ ...m, abstract: e.target.value }))} /></div>
         <label className="check-row"><input type="checkbox" checked={manualVerify} onChange={(e) => setManualVerify(e.target.checked)} />人工核验（我已在官方来源确认该题录信息）</label>
         <div className="field"><label>核验 / 备注说明</label><input className="input" aria-label="核验说明" placeholder="如：已在知网官网确认 / 检索式与时间" value={manual.note} onChange={(e) => setManual((m) => ({ ...m, note: e.target.value }))} /></div>
+        <div className="lit-actions">
+          <button className="btn" disabled={aiSearchBusy || !manual.citation.trim()} onClick={() => void runManualAiSearch()}>{aiSearchBusy ? "检索中…" : "AI 检索"}</button>
+        </div>
+        {aiSearchState && (
+          <div className="ai-search-results">
+            <p className="muted">检索式：{aiSearchState.queryUsed} · {aiSearchState.message}</p>
+            {aiSearchState.results.map((c) => (
+              <div key={c.doi || c.title} className="lit-candidate">
+                <div className="lit-candidate-main">
+                  <div className="lit-title">{c.title}
+                    {(c as Candidate & { refType?: string }).refType && <span className="badge badge-done">{REF_TYPE_LABEL[(c as Candidate & { refType?: string }).refType as string] ?? "其他"}</span>}
+                    {(c as Candidate & { region?: string }).region && <span className="badge">{REGION_LABEL[(c as Candidate & { region?: string }).region as "domestic" | "foreign" | "unknown"] ?? "待区分"}</span>}
+                  </div>
+                  <div className="muted">{c.authors}{c.year ? "（" + c.year + "）" : ""}{c.venue ? " · " + c.venue : ""} · DOI: {c.doi || "无"}</div>
+                  {c.url && <div className="muted lit-url">来源地址：<a href={c.url} onClick={(e) => { e.preventDefault(); openUrl(c.url); }}>{c.url}</a></div>}
+                </div>
+                <div className="lit-candidate-actions">
+                  <button className="btn btn-sm" onClick={() => adoptAiResult(c)}>采用此记录</button>
+                  <button className="btn btn-sm btn-primary" onClick={() => void saveCandidate(c, aiSearchState.queryUsed)}>直接保存</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="lit-actions">
           <button className="btn btn-primary" disabled={busy} onClick={() => void saveManual()}>保存记录</button>
         </div>
@@ -410,6 +514,8 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
                 <div className="lit-item-main">
                   <div className="lit-title">
                     {lit.title}
+                    <span className="badge badge-done">{REF_TYPE_LABEL[lit.refType] ?? "其他"}·{REF_TYPE_PRIORITY[lit.refType] ?? "—"}</span>
+                    <span className="badge">{REGION_LABEL[lit.region] ?? "待区分"}</span>
                     {lit.preprint && <span className="badge badge-warn">预印本</span>}
                     <span className={"badge badge-" + (lit.verifiedStatus === "verified" ? "done" : lit.verifiedStatus === "conflict" ? "warn" : "muted")}>{VERIFIED_STATUS_LABEL[lit.verifiedStatus]}</span>
                     <span className="badge">{LITERATURE_SOURCE_LABEL[lit.source]}</span>
@@ -417,6 +523,18 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
                   </div>
                   <div className="muted">{lit.authors}{lit.year ? "（" + lit.year + "）" : ""}{lit.venue ? " · " + lit.venue : ""}{lit.doi ? " · DOI: " + lit.doi : ""}</div>
                   {lit.verifiedNote && <div className="lit-note">核验记录：{lit.verifiedNote}</div>}
+                  <div className="lit-search-row meta-row">
+                    <select className="select select-sm" aria-label={"文献形式-" + lit.title.slice(0, 12)} value={lit.refType ?? "other"}
+                      onChange={async (e) => { const a = api(); if (!a) return; await a.literatureUpdateMeta(projectId, lit.id, { refType: e.target.value }); void refresh(); }}>
+                      {REF_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}（{t.priority}）</option>)}
+                    </select>
+                    <select className="select select-sm" aria-label={"国内外-" + lit.title.slice(0, 12)} value={lit.region ?? "unknown"}
+                      onChange={async (e) => { const a = api(); if (!a) return; await a.literatureUpdateMeta(projectId, lit.id, { region: e.target.value }); void refresh(); }}>
+                      <option value="domestic">国内</option>
+                      <option value="foreign">国外</option>
+                      <option value="unknown">待区分</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="lit-item-actions">
                   {lit.url && <button className="btn btn-sm" onClick={() => openUrl(lit.url)}>打开来源</button>}

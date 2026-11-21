@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import { fetch } from "undici";
+import { guessRegion } from "../../shared/literature";
 import type { SearchOutcome } from "../../shared/literature";
 
 const REAL_BASE = "https://export.arxiv.org";
@@ -39,6 +40,8 @@ export async function arxivSearch(query: string, signal?: AbortSignal): Promise<
       abstract: String(entry.summary ?? "").replace(/\s+/g, " ").trim(),
       source: "arxiv" as const,
       preprint: true,
+      refType: "preprint" as const,
+      region: guessRegion(String(entry.title ?? ""), venue),
     };
   }).filter((i) => i.title);
   return {

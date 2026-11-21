@@ -10,7 +10,7 @@ import { pubmedSearch } from "./adapters/pubmed";
 import { normalizeDoi, normalizeTitle } from "../shared/bibparse";
 import type { EvidenceCard, LiteratureItem, LiteratureSource, SearchLogEntry, SearchOutcome } from "../shared/literature";
 
-export type LiteratureInput = Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt">;
+export type LiteratureInput = Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt" | "refType" | "region"> & Partial<Pick<LiteratureItem, "refType" | "region">>;
 
 export interface SaveOutcome {
   saved: boolean;
@@ -159,6 +159,52 @@ export class LiteratureService {
     return { ok: true, message: parts.join("，"), queryUsed: used, results: results.slice(0, total), counts, cnNote };
   }
 
+  /** 更新文献形式与国内外区分（初判可被用户修正）。 */
+  updateMeta(projectId: string, literatureId: string, patch: { refType?: string; region?: string }): void {
+    const item = this.db.listLiterature(projectId).find((l) => l.id === literatureId);
+    if (!item) return;
+    this.db.updateLiterature(literatureId, {
+      refType: (patch.refType ?? item.refType) as LiteratureItem["refType"],
+      region: (patch.region ?? item.region) as LiteratureItem["region"],
+    });
+  }
+
+  /** 手动录入辅助：AI 检索——从用户粘贴的参考文献引用中提取检索式并跑真实 Crossref，
+   *  返回可核验的候选题录（含 DOI 与链接）。未配置检索辅助角色时退化为直接用引文检索。 */
+  async manualAiSearch(projectId: string, citation: string): Promise<{ ok: boolean; message: string; queryUsed: string; results: SearchOutcome["items"] }> {
+    const text = citation.trim();
+    if (!text) return { ok: false, message: "请先填写参考文献引用", queryUsed: "", results: [] };
+    let query = "";
+    const role = this.settings.resolveRole("search_assist");
+    if (role) {
+      try {
+        const content = await chat({
+          channel: role.channel,
+          apiKey: role.apiKey,
+          messages: [
+            { role: "system", content: "你是学术检索助手。从给定的参考文献引用中提取最适合学术数据库检索的检索式（通常是论文标题，或标题+第一作者）。只输出检索式本身，不要解释、不要引号。" },
+            { role: "user", content: "参考文献引用：" + text.slice(0, 600) },
+          ],
+          maxTokens: 200,
+          temperature: 0.1,
+          signal: this.signalWithTimeout(),
+        });
+        query = content.trim().slice(0, 200);
+      } catch { /* 退化到直接检索 */ }
+    }
+    if (!query) {
+      // 退化：取引文中的标题片段（第一个句号之后、[J]/[D]/[C]/[M] 之前）
+      const m = text.match(/[。.]\s*([^\[\]；;]{6,200}?)\s*\[[JDCMR]/);
+      query = (m?.[1] ?? text.slice(0, 200)).trim();
+    }
+    if (!query) return { ok: false, message: "无法从引用中提取检索式", queryUsed: "", results: [] };
+    const outcome = await crossrefSearch(query, this.settings.getContactEmail(), this.signalWithTimeout(), { rows: 5 });
+    this.db.appendSearchLog(projectId, "crossref", query, outcome.items.length, outcome.status, "手动录入 AI 检索");
+    if (outcome.status === "error") return { ok: false, message: outcome.message, queryUsed: query, results: [] };
+    if (outcome.items.length === 0) return { ok: false, message: "Crossref 未找到匹配题录（真实返回 0 条），请核对引文或改用其他平台", queryUsed: query, results: [] };
+    return { ok: true, message: "AI 检索完成：找到 " + outcome.items.length + " 条候选题录（真实 Crossref，可核验）", queryUsed: query, results: outcome.items };
+  }
+
   /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */  /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */
   saveItem(projectId: string, input: LiteratureInput, opts: { note?: string; manuallyVerified?: boolean }): SaveOutcome {
     const doi = normalizeDoi(input.doi ?? "");
@@ -193,6 +239,8 @@ export class LiteratureService {
       fulltextStatus: (input.abstract ?? "").trim() ? "abstract_only" : "none",
       pdfName: "",
       preprint: !!input.preprint,
+      refType: input.refType ?? "other",
+      region: input.region ?? "unknown",
     });
     return { saved: true, item: saved, message: "已保存" };
   }

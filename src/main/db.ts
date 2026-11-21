@@ -36,6 +36,8 @@ function litRow(r: Row): LiteratureItem {
     fulltextStatus: String(r.fulltext_status) as LiteratureItem["fulltextStatus"],
     pdfName: String(r.pdf_name ?? ""),
     preprint: Number(r.preprint) === 1,
+    refType: String(r.ref_type ?? "other") as LiteratureItem["refType"],
+    region: String(r.region ?? "unknown") as LiteratureItem["region"],
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
   };
@@ -292,8 +294,15 @@ export class ThesisDB {
     this.migrateChannels();
     this.migrateVersionName();
     this.migrateProjectMethods();
+    this.migrateLitRefType();
   }
 
+
+  /** literature_items 增加文献形式与国内外区分列（老库自动补列）。 */
+  private migrateLitRefType(): void {
+    try { this.db.exec("ALTER TABLE literature_items ADD COLUMN ref_type TEXT NOT NULL DEFAULT 'other'"); } catch { /* 已存在 */ }
+    try { this.db.exec("ALTER TABLE literature_items ADD COLUMN region TEXT NOT NULL DEFAULT 'unknown'"); } catch { /* 已存在 */ }
+  }
 
   /** projects 增加研究方法多选列（老库自动补列）。 */
   private migrateProjectMethods(): void {
@@ -561,9 +570,9 @@ export class ThesisDB {
     const id = randomUUID();
     const now = Date.now();
     this.db.prepare(
-      `INSERT INTO literature_items (id, project_id, title, authors, year, venue, doi, url, abstract, source, verified_status, verified_note, fulltext_status, pdf_name, preprint, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, item.projectId, item.title, item.authors, item.year, item.venue, item.doi, item.url, item.abstract, item.source, item.verifiedStatus, item.verifiedNote, item.fulltextStatus, item.pdfName, item.preprint ? 1 : 0, now, now);
+      `INSERT INTO literature_items (id, project_id, title, authors, year, venue, doi, url, abstract, source, verified_status, verified_note, fulltext_status, pdf_name, preprint, ref_type, region, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, item.projectId, item.title, item.authors, item.year, item.venue, item.doi, item.url, item.abstract, item.source, item.verifiedStatus, item.verifiedNote, item.fulltextStatus, item.pdfName, item.preprint ? 1 : 0, item.refType ?? "other", item.region ?? "unknown", now, now);
     return this.getLiterature(id) as LiteratureItem;
   }
 
@@ -572,13 +581,13 @@ export class ThesisDB {
     return row ? litRow(row) : null;
   }
 
-  updateLiterature(id: string, patch: Partial<Pick<LiteratureItem, "title" | "authors" | "year" | "venue" | "doi" | "url" | "abstract" | "verifiedStatus" | "verifiedNote">>): void {
+  updateLiterature(id: string, patch: Partial<Pick<LiteratureItem, "title" | "authors" | "year" | "venue" | "doi" | "url" | "abstract" | "verifiedStatus" | "verifiedNote" | "refType" | "region">>): void {
     const current = this.getLiterature(id);
     if (!current) return;
     const next = { ...current, ...patch, updatedAt: Date.now() };
     this.db.prepare(
-      `UPDATE literature_items SET title=?, authors=?, year=?, venue=?, doi=?, url=?, abstract=?, verified_status=?, verified_note=?, updated_at=? WHERE id=?`
-    ).run(next.title, next.authors, next.year, next.venue, next.doi, next.url, next.abstract, next.verifiedStatus, next.verifiedNote, next.updatedAt, id);
+      `UPDATE literature_items SET title=?, authors=?, year=?, venue=?, doi=?, url=?, abstract=?, verified_status=?, verified_note=?, ref_type=?, region=?, updated_at=? WHERE id=?`
+    ).run(next.title, next.authors, next.year, next.venue, next.doi, next.url, next.abstract, next.verifiedStatus, next.verifiedNote, next.refType, next.region, next.updatedAt, id);
   }
 
   setLiteraturePdf(id: string, pdfName: string): void {
