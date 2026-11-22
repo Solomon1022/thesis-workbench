@@ -52,8 +52,10 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("literature:manualAiSearch", (_e, projectId: string, citation: string) => literature.manualAiSearch(projectId, citation));
   // ReAct 检索三步
   ipcMain.handle("react:planKeywords", (_e, projectId: string) => reactSearch.planKeywords(projectId));
-  ipcMain.handle("react:executeSearch", (_e, projectId: string, plan: unknown, opts: { cn: number; en: number; excludeDois?: string[] }) =>
-    reactSearch.executeSearch(projectId, plan as Parameters<ReactSearchService["executeSearch"]>[1], opts));
+  ipcMain.handle("react:executeSearch", (e, projectId: string, plan: unknown, opts: { cn: number; en: number; excludeDois?: string[] }) =>
+    reactSearch.executeSearch(projectId, plan as Parameters<ReactSearchService["executeSearch"]>[1], opts, (msg: string) => {
+      if (!e.sender.isDestroyed()) e.sender.send("react:searchProgress", msg);
+    }));
   ipcMain.handle("react:verifyResults", (_e, projectId: string, outcome: unknown) =>
     reactSearch.verifyResults(projectId, outcome as Parameters<ReactSearchService["verifyResults"]>[1]));
   ipcMain.handle("literature:lookupDoi", (_e, doi: string) => literature.lookupDoi(doi));

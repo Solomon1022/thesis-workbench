@@ -39,6 +39,9 @@ const api = {
     ipcRenderer.invoke("react:executeSearch", projectId, plan, opts),
   reactVerifyResults: (projectId: string, outcome: unknown): Promise<{ verifyNote: string; pass: boolean }> =>
     ipcRenderer.invoke("react:verifyResults", projectId, outcome),
+  onReactSearchProgress: (cb: (msg: string) => void): void => {
+    ipcRenderer.on("react:searchProgress", (_e, msg: string) => cb(msg));
+  },
   literatureLookupDoi: (doi: string): Promise<{ found: boolean; message: string; item?: SearchOutcome["items"][number] }> =>
     ipcRenderer.invoke("literature:lookupDoi", doi),
   literatureSave: (projectId: string, input: unknown, opts: { note?: string; manuallyVerified?: boolean }) =>

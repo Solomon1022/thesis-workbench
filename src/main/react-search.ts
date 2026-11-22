@@ -89,6 +89,14 @@ export class ReactSearchService {
 
   /** 关键词清洗：必须是「词」（2-10 字），句子式输出会被拆分或丢弃，杜绝把研究问题当关键词 */
   /** 拆词：整串拆成词（词典切词；无词典命中时按虚词/连接词切） */
+  /** 选题文本抽词：按标点与虚词切出 2-10 字词，保证任何主题都有词 */
+  private tokensFromText(text: string): string[] {
+    const stop = new Set(["方向", "选题", "题目", "项目", "研究", "分析", "问题", "论文", "摘要", "关键词", "正文", "本文", "学生", "基于", "关于", "以及", "如何", "是否", "现状"]);
+    const raw = String(text ?? "");
+    const parts = raw.split(/[^\u4e00-\u9fa5a-zA-Z0-9]+/).flatMap((t) => t.split(/的|与|及|和|对|在|中|下|影响|研究|分析|基于|关于|作用|是否|显著|正向|负向|通过|如何|提出|本文|以|其|等|为|了/)).map((x) => x.trim());
+    return [...new Set(parts.filter((x) => x.length >= 2 && x.length <= 10 && !stop.has(x)))];
+  }
+
   private splitWords(terms: string[]): string[] {
     const out: string[] = [];
     for (const raw of terms) {
@@ -291,7 +299,7 @@ export class ReactSearchService {
   }
 
   /** ReAct-2：检索执行器——按计划逐个关键词检索；每步核对数量与国内外；不足则继续下一关键词 */
-  async executeSearch(projectId: string, plan: KeywordPlan, opts: { cn: number; en: number; excludeDois?: string[] }): Promise<SearchOutcome2> {
+  async executeSearch(projectId: string, plan: KeywordPlan, opts: { cn: number; en: number; excludeDois?: string[] }, onProgress?: (msg: string) => void): Promise<SearchOutcome2> {
     const cnRequested = Math.max(0, opts.cn);
     const enRequested = Math.max(0, opts.en);
     const exclude = new Set((opts.excludeDois ?? []).map((d) => d.trim()).filter(Boolean));
@@ -309,7 +317,7 @@ export class ReactSearchService {
     const topicText = this.collectContext(projectId);
 
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-    const BACKOFF = [0, 2000, 6000, 15000];
+    const BACKOFF = [0, 1500, 5000];
     const fetchWithRetry = async <T>(fn: () => Promise<T>): Promise<T | null> => {
       for (let attempt = 0; attempt < BACKOFF.length; attempt++) {
         try {
@@ -339,12 +347,15 @@ export class ReactSearchService {
       resultExpansions: [],
     });
 
+    const queryIdx = { i: 0 };
     for (const q of plan.queries) {
-      const cnNeed = cnRequested > 0 && cnPool.length < cnRequested;
-      const enNeed = enRequested > 0 && enPool.length < enRequested;
+      const cnNeed = cnRequested > 0 && cnPool.length < cnRequested && cnFailures < 6; // 源连续失败熔断
+      const enNeed = enRequested > 0 && enPool.length < enRequested && enFailures < 8;
       if (!cnNeed && !enNeed) break;
       await sleep(350); // 逐条间隔，礼貌访问数据源（防 429 限流）
       queriesUsed.push(q.zh);
+      queryIdx.i++;
+      onProgress?.("第 " + queryIdx.i + "/" + plan.queries.length + " 组检索式：" + q.zh);
       const pairCls = clsPair(q);
       if (cnNeed && /[\u4e00-\u9fa5]/.test(q.zh)) {
         try {
@@ -371,6 +382,7 @@ export class ReactSearchService {
           }
         } catch { /* 单源失败继续下一关键词 */ }
       }
+      onProgress?.("第 " + queryIdx.i + "/" + plan.queries.length + " 组完成：国内累计 " + cnPool.length + " 条、国外累计 " + enPool.length + " 条");
       if (enNeed && q.en) {
         const enQ = q.en;
         try {

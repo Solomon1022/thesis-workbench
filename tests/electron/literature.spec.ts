@@ -142,7 +142,10 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await expect(page.getByText(/已保存论文库偏好/)).toBeVisible();
 
     // 0) ReAct 两步检索（先规划关键词，再逐关键词检索）
-    await expect(page.getByText("总数范围：大于等于 15 篇、小于等于 30 篇")).toBeVisible();
+    await expect(page.getByText(/合计范围：15–30 篇/)).toBeVisible();
+    // 国内默认 / 国外自填
+    await expect(page.getByLabel("国内篇数")).toHaveValue("0");
+    await expect(page.getByLabel("国外篇数")).toHaveValue("4");
     await page.getByRole("button", { name: /前期检索与选题/ }).click();
     await page.getByLabel("研究方向与关键词").fill("attention");
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();

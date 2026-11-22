@@ -69,6 +69,8 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const [kwAddText, setKwAddText] = useState("");
   const [kwAddKind, setKwAddKind] = useState<"subject" | "result" | "extra">("subject");
   const [manualTerms, setManualTerms] = useState<Set<string>>(new Set());
+  const [autoEn, setAutoEn] = useState(4);
+  const [searchProgress, setSearchProgress] = useState("");
   const [prefModalOpen, setPrefModalOpen] = useState(false);
   const [preferredLinks, setPreferredLinks] = useState<Array<{ key: string; name: string; url: string }>>([]);
 
@@ -136,6 +138,13 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     }
   };
 
+  useEffect(() => {
+    const a = api();
+    if (!a) return;
+    a.onReactSearchProgress((msg) => setSearchProgress(msg));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const runPlanKeywords = async () => {
     const a = api();
     if (!a || planBusy) return;
@@ -201,14 +210,17 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const runReactSearch = async (extraExcludes: string[] = []) => {
     const a = api();
     if (!a || reactBusy || !keywordPlan) return;
-    const totalNum = Number(autoTotal);
+    const cnNum = Number(autoCn) || 0;
+    const enNum = Number(autoEn) || 0;
+    const totalNum = cnNum + enNum;
     if (!Number.isFinite(totalNum) || totalNum < 15 || totalNum > 30) {
-      setAutoRangeWarn(totalNum > 30 ? "⚠ 最多 30 篇，请将总数调整到 30 以内（15–30）" : "⚠ 建议总数不少于 15 篇（范围 15–30）");
+      setAutoRangeWarn(totalNum > 30 ? "⚠ 国内+国外合计最多 30 篇，请调整（15–30）" : "⚠ 国内+国外合计建议不少于 15 篇（范围 15–30）");
       if (totalNum > 30) return;
     } else {
       setAutoRangeWarn("");
     }
     setReactBusy(true);
+    setSearchProgress("");
     setError("");
     try {
       const excludeDois = [
@@ -217,7 +229,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         ...researchedDois,
         ...extraExcludes,
       ];
-      const r = await a.reactExecuteSearch(projectId, keywordPlan, { cn: Number(autoCn) || 0, en: Math.max(0, totalNum - (Number(autoCn) || 0)), excludeDois });
+      const r = await a.reactExecuteSearch(projectId, keywordPlan, { cn: cnNum, en: enNum, excludeDois });
       setCandidates(r.results);
       setOutcomeMeta({ source: "ReAct 逐关键词检索", query: r.queriesUsed.join(" / "), status: "ok", message: r.message, time: new Date().toLocaleTimeString("zh-CN", { hour12: false }) });
       setAutoHistory((prev) => [{ at: new Date().toLocaleString("zh-CN"), queryUsed: r.queriesUsed, results: r.results, counts: r.counts }, ...prev].slice(0, 5));
@@ -511,15 +523,16 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
             <button className="btn btn-primary" disabled={reactBusy || !keywordPlan} onClick={() => void runReactSearch()}>{reactBusy ? "检索中…" : "开始检索"}</button>
           </div>
           <div className="lit-search-row auto-counts-row">
-            <label className="row-label">总数</label>
-            <input className="input input-num" aria-label="自动检索总数" type="number" min={15} max={30} step={1} value={autoTotal} onChange={(e) => setAutoTotal(Number(e.target.value) || 15)} />
-            <label className="row-label">中文篇数</label>
-            <input className="input input-num" aria-label="中文篇数" type="number" min={0} max={autoTotal} step={1} value={autoCn} onChange={(e) => setAutoCn(Number(e.target.value) || 0)} />
-            <span className="muted">外文自动为 {Math.max(0, Number(autoTotal) - Number(autoCn))} 篇</span>
-            <span className="muted range-hint">总数范围：大于等于 15 篇、小于等于 30 篇</span>
+            <label className="row-label">国内篇数（默认）</label>
+            <input className="input input-num" aria-label="国内篇数" type="number" min={0} max={30} step={1} value={autoCn} onChange={(e) => setAutoCn(Number(e.target.value) || 0)} />
+            <label className="row-label">国外篇数（自填）</label>
+            <input className="input input-num" aria-label="国外篇数" type="number" min={0} max={30} step={1} value={autoEn} onChange={(e) => setAutoEn(Number(e.target.value) || 0)} />
+            <span className="muted">合计 {Number(autoCn) + Number(autoEn)} 篇</span>
+            <span className="muted range-hint">合计范围：15–30 篇（国内 + 国外）</span>
             <button className="btn btn-sm" onClick={() => setPrefModalOpen(true)}>选择偏好论文库{platformPrefs.platformKeys.length > 0 ? "（已选 " + platformPrefs.platformKeys.length + "）" : ""}</button>
           </div>
           {autoRangeWarn && <p className="banner banner-error">{autoRangeWarn}</p>}
+          {reactBusy && searchProgress && <p className="muted search-progress">检索进度：{searchProgress}</p>}
           {reactOutcome ? (
             <div className="react-output">
               <div className="banner banner-info">国内 {reactOutcome.counts.cnFound}/{reactOutcome.counts.cnRequested}、国外 {reactOutcome.counts.enFound}/{reactOutcome.counts.enRequested} · 核验：{reactOutcome.verifyNote}</div>
