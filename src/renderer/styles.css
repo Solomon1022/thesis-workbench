@@ -293,3 +293,7 @@ body {
 .kw-gen-box { border: 1px solid #93c5fd; border-radius: 8px; padding: 10px; margin-top: 8px; background: #eff6ff; min-height: 70px; }
 .kw-manual-box { border: 1px dashed #9ca3af; border-radius: 8px; padding: 10px; margin-top: 10px; background: #fafafa; }
 .kw-meta { margin-top: 8px; line-height: 1.6; }
+
+/* 关键词结果框面积给足 */
+.kw-gen-box { min-height: 130px; }
+.kw-gen-box .kw-chips { align-content: flex-start; }

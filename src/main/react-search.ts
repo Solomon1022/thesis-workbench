@@ -121,14 +121,18 @@ export class ReactSearchService {
     for (const raw of terms) {
       const t = String(raw ?? "").trim().replace(/[。.；;，,！!？?\s]+$/g, "");
       if (!t) continue;
-      const sentenceLike = t.length > 10 || /是否|影响|研究|分析|作用|通过|显著|正向|负向|如何|提出|本文/.test(t);
+      const sentenceLike = t.length > 8 || /是否|影响|研究|分析|作用|通过|显著|正向|负向|如何|提出|本文/.test(t);
       if (!sentenceLike) {
         if (!out.includes(t)) out.push(t);
         continue;
       }
-      // 句子式输出：尝试词典切词提取其中的术语
-      for (const piece of segmentKeywords(t)) {
-        if (piece.length >= 2 && piece.length <= 10 && !out.includes(piece)) out.push(piece);
+      // 句子式输出：先词典切词；拆不出再按虚词/连接词切分，绝不整条丢弃
+      let pieces = segmentKeywords(t).filter((x) => x.length >= 2 && x.length <= 12);
+      if (pieces.length === 0) {
+        pieces = t.split(/的|与|及|和|对|在|中|下|影响|研究|分析|基于|关于|作用|是否|显著|正向|负向|通过|如何|提出|本文|以及|其|等|[^a-zA-Z0-9\u4e00-\u9fa5]+/).map((x) => x.trim()).filter((x) => x.length >= 2 && x.length <= 12);
+      }
+      for (const piece of pieces) {
+        if (piece.length >= 2 && piece.length <= 12 && !out.includes(piece)) out.push(piece);
       }
     }
     return out.slice(0, 8);
