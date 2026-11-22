@@ -43,7 +43,7 @@ export interface TermClassification {
 /** 是否为结果词（词典精确 + 后缀启发式） */
 export function isResultWord(term: string): boolean {
   if (RESULT_WORD_DICT.includes(term)) return true;
-  return RESULT_WORD_SUFFIX.some((s) => term.length > s.length && term.endsWith(s));
+  return RESULT_WORD_SUFFIX.some((s) => term.length >= s.length && term.endsWith(s));
 }
 
 /** 主体同义扩展：每个词衍生 3-4 个相关词；剔除禁止放宽的泛词与自身 */

@@ -99,11 +99,21 @@ export class ReactSearchService {
         out.push(...seg);
         continue;
       }
-      const parts = t.split(/的|与|及|和|对|在|中|下|影响|研究|分析|直播|互动|基于|关于|作用/).map((x) => x.trim()).filter((x) => x.length >= 2 && x.length <= 12);
+      let parts = t.split(/的|与|及|和|对|在|中|下|影响|研究|分析|直播|互动|基于|关于|作用/).map((x) => x.trim()).filter((x) => x.length >= 2 && x.length <= 12);
+      if (parts.length <= 1 && t.length > 4) {
+        // 尾部剥壳：反复剥掉研究/策略/优化等尾缀，保留核心词
+        let core = t;
+        const stripRe = /(研究|分析|优化|策略|影响|问题|现状|对策|机制|模型|方法|实证|应用|设计|系统|平台|数据|因素|效应|路径|框架|方案|效果|提升|改进|构建|基于|视角|探析|研究)$/;
+        let prev = "";
+        while (core !== prev) { prev = core; core = core.replace(stripRe, ""); }
+        if (core.length >= 2 && core.length <= 12) parts = [core];
+        else parts = [t];
+      }
       if (parts.length > 1) out.push(...parts);
       else if (t.length >= 2 && t.length <= 12) out.push(t);
     }
-    return [...new Set(out)].filter((x) => x.length >= 2 && x.length <= 12);
+    const stop = new Set(["方向", "选题", "题目", "项目", "研究", "分析", "问题", "论文", "摘要", "关键词", "正文", "本文"]);
+    return [...new Set(out)].filter((x) => x.length >= 2 && x.length <= 12 && !stop.has(x));
   }
 
   /** 拍平关键词：从主体∪结果∪中介∪对象全部取词，每个词同义延申，再按结果词分流。
@@ -191,7 +201,7 @@ export class ReactSearchService {
         const extractSystem = [
           "你是学术检索关键词规划器（ReAct）。第 1 步：从给定论文信息中提取检索关键词。",
           "只输出 JSON：{\"subject\":[\"主体词（研究对象/自变量）\"],\"result\":[\"结果词（因变量/结局）\"],\"extra\":[\"背景补充词\"]}",
-          "规则：以选题与摘要的关键词为主、背景为辅；每个词 2-8 字；禁止输出泛词（如「研究」「分析」「影响」）。",
+          "规则：以选题与摘要的关键词为主、背景为辅；subject 至少 3 个词、result 至少 2 个词（result=因变量/目标指标，如效果/绩效/满意度/意愿/转化率/自我效能/销量等，选题里没有就根据研究目标写出 2 个合理的词）；每个词 2-8 字；禁止输出泛词（研究/分析/影响/现状/问题）。",
         ].join("\n");
         const step1 = await model.generate(extractSystem, context, 4000, 0.3);
         const ex1 = this.parseJsonSafe(step1) as { subject?: string[]; result?: string[]; extra?: string[] } | null;
@@ -203,7 +213,7 @@ export class ReactSearchService {
         const extendSystem = [
           "你是学术检索关键词规划器（ReAct）。第 2 步：为给定关键词延申同义词与相似相关关键词（保持同概念层级，禁止上义泛词）。",
           "只输出 JSON：{\"subject\":[\"原词\",\"同义1\",\"同义2\"],\"result\":[\"原词\",\"同义1\"],\"extra\":[\"补充词\"]}",
-          "每个原词延申 2-3 个；每类总量不超过 6 个。",
+          "每个原词延申 2-3 个同义词或相近概念词（含结果词的近义指标词）；每类 4-8 个。",
         ].join("\n");
         const step2 = await model.generate(extendSystem, JSON.stringify(base), 4000, 0.4);
         const ex2 = this.parseJsonSafe(step2) as { subject?: string[]; result?: string[]; extra?: string[] } | null;
@@ -213,7 +223,7 @@ export class ReactSearchService {
           extra: [...new Set([...base.extra, ...pickArr(ex2?.extra, [])])].slice(0, 6),
         };
         const checkSystem = [
-          "你是学术检索关键词规划器（ReAct）。第 3 步自检：删除上义泛词（主播、直播、消费者、用户、网络这类过度宽泛词），保留与选题同概念层级的词。",
+          "你是学术检索关键词规划器（ReAct）。第 3 步自检：只删除明显的上义泛词（如「研究」「分析」「影响」「现状」这类无检索价值的词）；必须至少保留 3 个主体词与 2 个结果词，数量不足就从候选里补回。",
           "只输出 JSON：{\"subject\":[],\"result\":[],\"extra\":[]}（修正后的列表）",
         ].join("\n");
         const step3 = await model.generate(checkSystem, JSON.stringify(merged), 2000, 0.2);
