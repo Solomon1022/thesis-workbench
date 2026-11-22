@@ -210,7 +210,7 @@ export class ReactSearchService {
   }
 
   /** ReAct-1：关键词规划器（提取 → 延申 → 自检；无模型时走确定性规则） */
-  async planKeywords(projectId: string): Promise<KeywordPlan> {
+  async planKeywords(projectId: string, counts?: { cn: number; en: number }): Promise<KeywordPlan> {
     try {
     const context = this.buildMd(projectId);
     const detail = this.db.getProjectDetail(projectId);
@@ -257,7 +257,7 @@ export class ReactSearchService {
         const extractSystem = [
           "你是学术检索关键词规划器（ReAct）。第 1 步：从给定论文信息中提取检索关键词。",
           "只输出 JSON：{\"subject\":[\"主体词（研究对象/自变量）\"],\"result\":[\"结果词（因变量/结局）\"],\"extra\":[\"背景补充词\"]}",
-          "规则：以选题与摘要的关键词为主、背景为辅；subject 至少 3 个词、result 至少 2 个词（result=因变量/目标指标，如效果/绩效/满意度/意愿/转化率/自我效能/销量等，选题里没有就根据研究目标写出 2 个合理的词）；每个词 2-8 字；禁止输出泛词（研究/分析/影响/现状/问题）。",
+          "规则：以选题与摘要的关键词为主、背景为辅；subject 至少 3 个词、result 至少 2 个词（result=因变量/目标指标，如效果/绩效/满意度/意愿/转化率/自我效能/销量等，选题里没有就根据研究目标写出 2 个合理的词）；每个词 2-8 字；禁止输出泛词（研究/分析/影响/现状/问题）。" + (counts ? "检索目标数量：国内 " + counts.cn + " 篇、国外 " + counts.en + " 篇，请规划足够的检索式组合来支撑该数量。" : ""),
         ].join("\n");
         const step1 = await model.generate(extractSystem, context, 4000, 0.3);
         const ex1 = this.parseJsonSafe(step1) as { subject?: string[]; result?: string[]; extra?: string[] } | null;
@@ -348,7 +348,7 @@ export class ReactSearchService {
 
   /** 一步式：第 0/1/2 阶段内容 → MD → AI 规划检索 → 执行 → 核验（关键词模块已移除） */
   async searchAll(projectId: string, opts: { cn: number; en: number; excludeDois?: string[] }): Promise<{ plan: KeywordPlan; outcome: SearchOutcome2; verify: { verifyNote: string; pass: boolean } }> {
-    const plan = await this.planKeywords(projectId);
+    const plan = await this.planKeywords(projectId, { cn: opts.cn, en: opts.en });
     const outcome = await this.executeSearch(projectId, plan, opts);
     const verify = await this.verifyResults(projectId, outcome);
     return { plan, outcome, verify };
