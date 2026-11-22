@@ -35,6 +35,8 @@ const api = {
   literatureManualAiSearch: (projectId: string, citation: string): Promise<{ ok: boolean; message: string; queryUsed: string; results: SearchOutcome["items"] }> =>
     ipcRenderer.invoke("literature:manualAiSearch", projectId, citation),
   reactPlanKeywords: (projectId: string): Promise<unknown> => ipcRenderer.invoke("react:planKeywords", projectId),
+  reactSearchAll: (projectId: string, opts: { cn: number; en: number; excludeDois?: string[] }): Promise<unknown> =>
+    ipcRenderer.invoke("react:searchAll", projectId, opts),
   reactExecuteSearch: (projectId: string, plan: unknown, opts: { cn: number; en: number; excludeDois?: string[] }): Promise<unknown> =>
     ipcRenderer.invoke("react:executeSearch", projectId, plan, opts),
   reactVerifyResults: (projectId: string, outcome: unknown): Promise<{ verifyNote: string; pass: boolean }> =>

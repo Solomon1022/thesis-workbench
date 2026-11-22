@@ -59,16 +59,9 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     } catch { /* 忽略 */ }
     return { platformKeys: [], openAccessOnly: false, globalLibraries: false };
   });
-  const [keywordPlan, setKeywordPlan] = useState<{ subject: string[]; result: string[]; extra: string[]; queries: Array<{ zh: string; en: string | null; label: string; level: string; pair: { sub: string; res: string } }>; note: string; aiGenerated: boolean } | null>(null);
-  const [planBusy, setPlanBusy] = useState(false);
   const [reactBusy, setReactBusy] = useState(false);
   const [reactOutcome, setReactOutcome] = useState<{ message: string; counts: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; verifyNote: string; needMore: boolean } | null>(null);
   const [researchedDois, setResearchedDois] = useState<string[]>([]);
-  const [kwHistory, setKwHistory] = useState<Array<{ subject: string[]; result: string[]; extra: string[]; queries: Array<{ zh: string; en: string | null; label: string; level: string; pair: { sub: string; res: string } }>; note: string; aiGenerated: boolean }>>([]);
-  const [kwHistIdx, setKwHistIdx] = useState(-1);
-  const [kwAddText, setKwAddText] = useState("");
-  const [kwAddKind, setKwAddKind] = useState<"subject" | "result" | "extra">("subject");
-  const [manualTerms, setManualTerms] = useState<Set<string>>(new Set());
   const [autoEn, setAutoEn] = useState(4);
   const [searchProgress, setSearchProgress] = useState("");
   const [prefModalOpen, setPrefModalOpen] = useState(false);
@@ -145,71 +138,9 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const runPlanKeywords = async () => {
-    const a = api();
-    if (!a || planBusy) return;
-    setPlanBusy(true);
-    setError("");
-    try {
-      const plan = await a.reactPlanKeywords(projectId);
-      setKeywordPlan(plan);
-      setKwHistory((prev) => [...prev.slice(0, kwHistIdx + 1), plan]);
-      setKwHistIdx((i) => i + 1);
-      setMessage("关键词方案已生成（" + (plan.aiGenerated ? "AI 三步规划" : "词典确定性生成") + "）。确认后点「② AI 搜寻论文」逐个关键词检索");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPlanBusy(false);
-    }
-  };
-
-  const commitPlan = (p: NonNullable<typeof keywordPlan>) => {
-    setKeywordPlan(p);
-    setKwHistory((prev) => [...prev.slice(0, kwHistIdx + 1), p]);
-    setKwHistIdx((i) => i + 1);
-  };
-
-  const removeKw = (term: string) => {
-    if (!keywordPlan) return;
-    commitPlan({
-      ...keywordPlan,
-      subject: keywordPlan.subject.filter((s) => s !== term),
-      result: keywordPlan.result.filter((s) => s !== term),
-      extra: keywordPlan.extra.filter((s) => s !== term),
-      queries: keywordPlan.queries.filter((q) => q.pair.sub !== term && q.pair.res !== term),
-    });
-  };
-
-  const addKw = () => {
-    const term = kwAddText.trim();
-    if (!term || !keywordPlan) return;
-    const kindLabel = kwAddKind === "subject" ? "主体「" + term + "」" : kwAddKind === "result" ? "结果「" + term + "」" : "背景「" + term + "」";
-    commitPlan({
-      ...keywordPlan,
-      [kwAddKind]: [...new Set([...(keywordPlan[kwAddKind] ?? []), term])],
-      queries: [...keywordPlan.queries, { zh: term, en: null, label: kindLabel, level: "L1", pair: { sub: kwAddKind === "subject" ? term : "", res: kwAddKind === "result" ? term : "" } }],
-    });
-    setManualTerms((prev) => new Set(prev).add(term));
-    setKwAddText("");
-  };
-
-  const undoKw = () => {
-    if (kwHistIdx <= 0) return;
-    const target = kwHistory[kwHistIdx - 1];
-    setKwHistIdx(kwHistIdx - 1);
-    if (target) setKeywordPlan(target);
-  };
-
-  const redoKw = () => {
-    if (kwHistIdx >= kwHistory.length - 1) return;
-    const target = kwHistory[kwHistIdx + 1];
-    setKwHistIdx(kwHistIdx + 1);
-    if (target) setKeywordPlan(target);
-  };
-
   const runReactSearch = async (extraExcludes: string[] = []) => {
     const a = api();
-    if (!a || reactBusy || !keywordPlan) return;
+    if (!a || reactBusy) return;
     const cnNum = Number(autoCn) || 0;
     const enNum = Number(autoEn) || 0;
     const totalNum = cnNum + enNum;
@@ -229,15 +160,14 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         ...researchedDois,
         ...extraExcludes,
       ];
-      const r = await a.reactExecuteSearch(projectId, keywordPlan, { cn: cnNum, en: enNum, excludeDois });
-      setCandidates(r.results);
-      setOutcomeMeta({ source: "ReAct 逐关键词检索", query: r.queriesUsed.join(" / "), status: "ok", message: r.message, time: new Date().toLocaleTimeString("zh-CN", { hour12: false }) });
-      setAutoHistory((prev) => [{ at: new Date().toLocaleString("zh-CN"), queryUsed: r.queriesUsed, results: r.results, counts: r.counts }, ...prev].slice(0, 5));
-      setResearchedDois((prev) => [...new Set([...prev, ...r.results.map((c) => c.doi).filter(Boolean)])]);
-      const v = await a.reactVerifyResults(projectId, r);
-      setReactOutcome({ message: r.message, counts: r.counts, verifyNote: v.verifyNote, needMore: r.needMore });
-      setMessage(r.message + "。核验：" + v.verifyNote);
-      void refresh();
+      const r = await a.reactSearchAll(projectId, { cn: cnNum, en: enNum, excludeDois });
+      setCandidates(r.outcome.results);
+      setOutcomeMeta({ source: "AI 检索（第 0/1/2 阶段内容 → MD → AI 规划 → 真实数据源检索）", query: r.outcome.queriesUsed.join(" / "), status: "ok", message: r.outcome.message, time: new Date().toLocaleTimeString("zh-CN", { hour12: false }) });
+      setAutoHistory((prev) => [{ at: new Date().toLocaleString("zh-CN"), queryUsed: r.outcome.queriesUsed, results: r.outcome.results, counts: r.outcome.counts }, ...prev].slice(0, 5));
+      setResearchedDois((prev) => [...new Set([...prev, ...r.outcome.results.map((c) => c.doi).filter(Boolean)])]);
+      setReactOutcome({ message: r.outcome.message, counts: r.outcome.counts, verifyNote: r.verify.verifyNote, needMore: r.outcome.needMore });
+      setMessage(r.outcome.message + "。核验：" + r.verify.verifyNote);
+      await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -455,72 +385,11 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         <div className="card-head-row">
           <h3 className="ai-title">一键自动找文献（ReAct 三步：优化关键词 → 逐关键词检索 → 核验）</h3>
         </div>
-        {/* ① 关键词规划框 */}
+        {/* AI 检索论文：第 0/1/2 阶段内容 → MD → 一次性发送 AI → 真实数据源检索 */}
         <div className="react-box">
           <div className="react-box-head">
-            <h4>① 关键词规划（读取第 0/1/2 阶段内容，AI 生成额外关键词）</h4>
-            <button className="btn" disabled={planBusy || reactBusy} onClick={() => void runPlanKeywords()}>{planBusy ? "规划中…" : "生成关键词方案"}</button>
-          </div>
-          {planBusy && <p className="muted">正在读取选题/摘要/关键词并生成…（推理模型较慢属正常，请稍候）</p>}
-
-          {/* AI 生成的关键词输出区（独立框，生成结果全部放这里） */}
-          <div className="kw-gen-box">
-            <div className="kw-output-head">
-              <span className="kw-output-title">AI 生成的关键词（从左到右摊开，点击标签可删除）</span>
-              <span className="kw-tools">
-                <button className="btn btn-sm" disabled={kwHistIdx <= 0} onClick={undoKw} title="撤销上一次增删">↩ 回退</button>
-                <button className="btn btn-sm" disabled={kwHistIdx >= kwHistory.length - 1} onClick={redoKw} title="重做">↪ 前进</button>
-              </span>
-            </div>
-            <div className="kw-chips">
-              {keywordPlan && (
-                <>
-                  {keywordPlan.subject.map((s) => (
-                    <button key={"s" + s} className="kw-tag" onClick={() => removeKw(s)}>{(manualTerms.has(s) ? "手动·" : "")}主体词：{s}<span className="kw-x">✕</span></button>
-                  ))}
-                  {keywordPlan.result.map((s) => (
-                    <button key={"r" + s} className="kw-tag kw-tag-result" onClick={() => removeKw(s)}>{(manualTerms.has(s) ? "手动·" : "")}结果词：{s}<span className="kw-x">✕</span></button>
-                  ))}
-                  {keywordPlan.extra.map((s) => (
-                    <button key={"e" + s} className="kw-tag kw-tag-extra" onClick={() => removeKw(s)}>{(manualTerms.has(s) ? "手动·" : "")}背景词：{s}<span className="kw-x">✕</span></button>
-                  ))}
-                </>
-              )}
-              {!keywordPlan && (
-                <span className="muted">尚未生成：点上方「生成关键词方案」，生成结果会显示在本框内。</span>
-              )}
-              {keywordPlan && keywordPlan.subject.length + keywordPlan.result.length + keywordPlan.extra.length === 0 && (
-                <span className="muted">生成结果为空：请确认第 0/1/2 阶段已填写选题/摘要/关键词内容，然后重新生成。</span>
-              )}
-            </div>
-            {keywordPlan && (
-              <div className="muted kw-meta">{keywordPlan.note} · 共 {keywordPlan.subject.length + keywordPlan.result.length + keywordPlan.extra.length} 个词 · 检索计划 {keywordPlan.queries.length} 组（逐词检索，不合并搜索框）</div>
-            )}
-          </div>
-
-          {/* 手动补充关键词输入框（独立，与 AI 生成区分开；添加后进入上方列表并标「手动」） */}
-          <div className="kw-manual-box">
-            <div className="kw-output-head">
-              <span className="kw-output-title">手动补充关键词输入框（额外补充自己想要的词）</span>
-            </div>
-            <div className="kw-add-row">
-              <input className="input" aria-label="新增关键词" placeholder="输入要补充的关键词（2-10 字）" value={kwAddText} onChange={(e) => setKwAddText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addKw(); }} />
-              <select className="input" aria-label="关键词类别" value={kwAddKind} onChange={(e) => setKwAddKind(e.target.value as "subject" | "result" | "extra")}>
-                <option value="subject">主体词</option>
-                <option value="result">结果词</option>
-                <option value="extra">背景词</option>
-              </select>
-              <button className="btn btn-sm" disabled={!kwAddText.trim() || !keywordPlan} onClick={addKw}>添加</button>
-            </div>
-            <div className="muted">说明：这里只是手动加词；AI 生成的关键词显示在上方独立框内，两者不混放。</div>
-          </div>
-        </div>
-
-        {/* ② AI 检索框 */}
-        <div className="react-box">
-          <div className="react-box-head">
-            <h4>② AI 检索论文（按关键词方案逐个检索，结果输出到下方）</h4>
-            <button className="btn btn-primary" disabled={reactBusy || !keywordPlan} onClick={() => void runReactSearch()}>{reactBusy ? "检索中…" : "开始检索"}</button>
+            <h4>AI 检索论文（把第 0/1/2 阶段的全部内容整理成 Markdown 一次性发送给 AI，由 AI 抓取信息并生成检索计划，然后在真实数据源检索）</h4>
+            <button className="btn btn-primary" disabled={reactBusy} onClick={() => void runReactSearch()}>{reactBusy ? "检索中…" : "AI 检索论文"}</button>
           </div>
           <div className="lit-search-row auto-counts-row">
             <label className="row-label">国内篇数（默认）</label>
@@ -532,25 +401,21 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
             <button className="btn btn-sm" onClick={() => setPrefModalOpen(true)}>选择偏好论文库{platformPrefs.platformKeys.length > 0 ? "（已选 " + platformPrefs.platformKeys.length + "）" : ""}</button>
           </div>
           {autoRangeWarn && <p className="banner banner-error">{autoRangeWarn}</p>}
+          {reactBusy && <p className="muted">正在整理第 0/1/2 阶段内容并发送给 AI 规划检索（推理模型较慢属正常，请稍候）…</p>}
           {reactBusy && searchProgress && <p className="muted search-progress">检索进度：{searchProgress}</p>}
           {reactOutcome ? (
             <div className="react-output">
               <div className="banner banner-info">国内 {reactOutcome.counts.cnFound}/{reactOutcome.counts.cnRequested}、国外 {reactOutcome.counts.enFound}/{reactOutcome.counts.enRequested} · 核验：{reactOutcome.verifyNote}</div>
-              <div className="muted">本次逐关键词检索式：{keywordPlan ? keywordPlan.queries.map((q) => q.zh).filter(Boolean).join("；") : ""}</div>
+              <div className="lit-search-row">
+                <button className="btn" disabled={reactBusy || (!reactOutcome.needMore && !/未通过|再次/.test(reactOutcome.verifyNote))} onClick={() => void runReactSearch([])}>AI 再次查询（排除已搜文献）</button>
+                <span className="muted">数量或主题不符时可补充检索；已保存与已搜寻文献自动屏蔽。</span>
+              </div>
             </div>
           ) : (
-            <p className="muted">完成①后执行；检索数量与核验结论将显示在此框内。</p>
+            <p className="muted">设置国内外篇数后点击「AI 检索论文」；检索数量与核验结论将显示在此框内。</p>
           )}
         </div>
 
-        {/* AI 再次查询框 */}
-        <div className="react-box">
-          <div className="react-box-head">
-            <h4>AI 再次查询（数量或主题不符时补充检索）</h4>
-            <button className="btn" disabled={reactBusy || !reactOutcome || (!reactOutcome.needMore && !/未通过|再次/.test(reactOutcome.verifyNote))} onClick={() => void runReactSearch([])}>再次查询</button>
-          </div>
-          <p className="muted">排除已保存与已搜寻文献后重新检索，避免重复；未完成首次检索时不可用。</p>
-        </div>
         <p className="muted">根据「前期检索与选题」「研究问题与设计」里已填的方向、变量与摘要自动推导检索式，直接检索真实 OpenAlex 与 Crossref 数据源；每条文献的地址直接给出，可一键保存入库。再次检索会自动排除已保存与历史推荐的文献，得到不同的结果。语言只标记「中文/外文」，国内外归属需人工确认作者单位与出版地。</p>
 
         {autoState && autoState.ok && <p className="muted">本次检索式：{autoState.queryUsed.join("；")}</p>}

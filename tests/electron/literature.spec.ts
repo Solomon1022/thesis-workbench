@@ -141,7 +141,7 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.locator(".modal").getByRole("button", { name: "确定" }).click();
     await expect(page.getByText(/已保存论文库偏好/)).toBeVisible();
 
-    // 0) ReAct 两步检索（先规划关键词，再逐关键词检索）
+    // 0) AI 检索论文（第 0/1/2 阶段内容 → MD → 一次性发送 AI → 真实数据源检索）
     await expect(page.getByText(/合计范围：15–30 篇/)).toBeVisible();
     // 国内默认 / 国外自填
     await expect(page.getByLabel("国内篇数")).toHaveValue("0");
@@ -149,35 +149,14 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await page.getByRole("button", { name: /前期检索与选题/ }).click();
     await page.getByLabel("研究方向与关键词").fill("attention");
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
-    // 第一步：生成关键词方案（未配模型 → 词典确定性方案）→ AI 生成结果框与手动输入框分离
-    await expect(page.locator(".kw-gen-box")).toBeVisible();
-    await expect(page.locator(".kw-manual-box")).toBeVisible();
-    await page.getByRole("button", { name: "生成关键词方案" }).click();
-    await expect(page.getByText(/共 .* 个词/)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/主体词：/).first()).toBeVisible();
-    // 关键词增删 + 回退前进
-    await page.getByLabel("新增关键词").fill("直播电商");
-    await page.getByRole("button", { name: "添加" }).click();
-    await expect(page.getByText(/背景词：直播电商|主体词：直播电商|结果词：直播电商/).first()).toBeVisible();
-    await page.getByRole("button", { name: "↩ 回退" }).click();
-    await expect(page.getByText(/直播电商/)).toHaveCount(0);
-    await page.getByRole("button", { name: "↪ 前进" }).click();
-    await expect(page.getByText(/直播电商/).first()).toBeVisible();
-    // 再次查询按钮常驻但暂时禁用（未检索前不可用）
-    await expect(page.getByRole("button", { name: "再次查询", exact: true })).toBeDisabled();
-    // 第二步：逐个关键词检索
-    await page.getByRole("button", { name: "开始检索" }).click();
+    await page.getByRole("button", { name: "AI 检索论文" }).click();
     await expect(page.getByText(/检索完成/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" })).toContainText("https://example.org/attention");
-    await expect(page.getByText("ReAct 逐关键词检索")).toBeVisible();
+    await expect(page.getByText("AI 检索（第 0/1/2 阶段内容 → MD → AI 规划 → 真实数据源检索）")).toBeVisible();
     // 数量未达标 → 再次查询按钮启用（排除上批文献）
-    await expect(page.getByRole("button", { name: "再次查询", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "再次查询", exact: true }).click();
+    await expect(page.getByRole("button", { name: /AI 再次查询/ })).toBeEnabled();
+    await page.getByRole("button", { name: /AI 再次查询/ }).click();
     await expect(page.getByText(/已排除/).first()).toBeVisible({ timeout: 30_000 });
-    // 关键词标签可点击删除（词，不是句子）
-    await page.locator(".kw-chips").getByText(/主体词：attention/).click();
-    await expect(page.locator(".kw-chips").getByText(/主体词：attention/)).toHaveCount(0);
-    await expect(page.locator(".kw-chips").getByText(/主体词：直播电商/)).toHaveCount(1);
 
     // 1) Crossref 检索 → 候选 → 保存
     await page.getByLabel("检索式").fill("attention transformer");
@@ -208,7 +187,7 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
 
     // 4a) 手动录入的「AI 检索」：粘贴引文 → AI 检索真实 Crossref → 采用题录
     await page.getByLabel("参考文献引用").fill("Attention is all you need. NeurIPS, 2017.");
-    await page.getByRole("button", { name: "AI 检索" }).click();
+    await page.getByRole("button", { name: "AI 检索", exact: true }).click();
     await expect(page.locator(".ai-search-results")).toContainText("检索式：", { timeout: 30_000 });
     await page.locator(".ai-search-results .lit-candidate").filter({ hasText: "Attention is all you need" }).getByRole("button", { name: "采用此记录" }).click();
     await expect(page.getByLabel("参考文献引用")).toHaveValue(/Attention is all you need/);

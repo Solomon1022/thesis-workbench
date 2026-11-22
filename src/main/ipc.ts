@@ -52,6 +52,10 @@ export function registerIpc(db: ThesisDB, settings: SettingsService, literature:
   ipcMain.handle("literature:manualAiSearch", (_e, projectId: string, citation: string) => literature.manualAiSearch(projectId, citation));
   // ReAct 检索三步
   ipcMain.handle("react:planKeywords", (_e, projectId: string) => reactSearch.planKeywords(projectId));
+  ipcMain.handle("react:searchAll", (e, projectId: string, opts: { cn: number; en: number; excludeDois?: string[] }) => {
+    const progress = (msg: string) => { if (!e.sender.isDestroyed()) e.sender.send("react:searchProgress", msg); };
+    return reactSearch.searchAll(projectId, opts).then((result) => ({ ...result, progressNote: "" }));
+  });
   ipcMain.handle("react:executeSearch", (e, projectId: string, plan: unknown, opts: { cn: number; en: number; excludeDois?: string[] }) =>
     reactSearch.executeSearch(projectId, plan as Parameters<ReactSearchService["executeSearch"]>[1], opts, (msg: string) => {
       if (!e.sender.isDestroyed()) e.sender.send("react:searchProgress", msg);

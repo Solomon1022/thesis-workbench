@@ -161,10 +161,58 @@ export class ReactSearchService {
     return extractJson(text);
   }
 
+  /** 第 0/1/2 阶段全部内容 → Markdown 文档（一次性发给 AI） */
+  private buildMd(projectId: string): string {
+    const detail = this.db.getProjectDetail(projectId);
+    const p0 = detail.project;
+    const topic = detail.content["topic"] ?? {};
+    const design = detail.content["design"] ?? {};
+    const writing = detail.content["writing"] ?? {};
+    const L: string[] = [];
+    const field = (label: string, value: unknown) => {
+      const v = String(value ?? "").trim();
+      if (v) L.push("- " + label + "：" + v);
+    };
+    L.push("# 论文信息（第 0/1/2 阶段汇总）");
+    L.push("## 第 0 阶段 · 建立项目");
+    field("项目名称", p0.name);
+    field("学科", p0.disciplines.join("、"));
+    field("学历", p0.educationLevel);
+    const m = p0.materials as unknown as Record<string, string>;
+    if (m) {
+      field("已有题目", m.title);
+      field("已有文献", m.literature);
+      field("已有数据", m.data);
+      field("已有草稿", m.draft);
+      field("备注", m.notes);
+    }
+    L.push("## 第 1 阶段 · 前期检索与选题");
+    field("研究方向", topic["direction"]);
+    field("候选研究问题", topic["candidates"]);
+    field("变量（JSON）", topic["variables"]);
+    field("样本可获得性", topic["sample_access"]);
+    L.push("## 第 2 阶段 · 研究问题与设计");
+    field("研究问题", design["research_question"]);
+    field("理论构念", design["constructs"]);
+    field("变量角色", design["variable_roles"]);
+    field("测量方式", design["measures"]);
+    field("样本与抽样设计", design["sampling"]);
+    field("论文摘要", design["abstract"]);
+    field("内容框架（章节提纲）", design["outline"]);
+    field("摘要与关键词", design["abstract_keywords"]);
+    field("写作关键词", writing["keywords"]);
+    const hyps = this.db.listHypotheses(projectId);
+    if (hyps.length > 0) {
+      L.push("## 研究假设");
+      for (const h of hyps) L.push("- " + h.number + "：" + h.statement + "（IV：" + h.iv + "；DV：" + h.dv + "；依据：" + h.basis + "）");
+    }
+    return L.join("\n");
+  }
+
   /** ReAct-1：关键词规划器（提取 → 延申 → 自检；无模型时走确定性规则） */
   async planKeywords(projectId: string): Promise<KeywordPlan> {
     try {
-    const context = this.collectContext(projectId);
+    const context = this.buildMd(projectId);
     const detail = this.db.getProjectDetail(projectId);
     const topicContent = detail.content["topic"] ?? {};
     const designContent = detail.content["design"] ?? {};
@@ -296,6 +344,14 @@ export class ReactSearchService {
       ? "关键词由 AI 规划器三步生成（提取→延申→自检）并拍平为词，检索前请确认"
       : "未配置检索辅助模型，关键词由内置术语词典确定性生成并拍平为词";
     return { subject, result, extra, queries, note, aiGenerated };
+  }
+
+  /** 一步式：第 0/1/2 阶段内容 → MD → AI 规划检索 → 执行 → 核验（关键词模块已移除） */
+  async searchAll(projectId: string, opts: { cn: number; en: number; excludeDois?: string[] }): Promise<{ plan: KeywordPlan; outcome: SearchOutcome2; verify: { verifyNote: string; pass: boolean } }> {
+    const plan = await this.planKeywords(projectId);
+    const outcome = await this.executeSearch(projectId, plan, opts);
+    const verify = await this.verifyResults(projectId, outcome);
+    return { plan, outcome, verify };
   }
 
   /** ReAct-2：检索执行器——按计划逐个关键词检索；每步核对数量与国内外；不足则继续下一关键词 */
