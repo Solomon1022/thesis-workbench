@@ -261,9 +261,9 @@ export class ReactSearchService {
       zhSeen.add(zh);
       queries.push({ zh, en, label, level, pair });
     };
-    // ① 主体词 × 结果词 配对（逐词，不合并搜索框）
-    for (const sub of subs.slice(0, 6)) {
-      for (const res of ress.slice(0, 3)) {
+    // ① 主体词 × 结果词 配对（逐词，不合并搜索框；限制组数避免触发数据源限流）
+    for (const sub of subs.slice(0, 4)) {
+      for (const res of ress.slice(0, 2)) {
         const zh = [sub, res].filter(Boolean).join(" ");
         const enSub = englishTerm(sub, cls);
         const enRes = englishTerm(res, cls);
@@ -272,12 +272,12 @@ export class ReactSearchService {
       }
     }
     // ② 主体词单独检索式（中文池逐词搜索，稀疏库更易命中）
-    for (const sub of subs.slice(0, 6)) {
+    for (const sub of subs.slice(0, 4)) {
       const en = englishTerm(sub, cls) || null;
       addQ(sub, en, "单主体词「" + sub + "」", "L1", { sub, res: "" });
     }
     // ③ 结果词单独检索式
-    for (const res of ress.slice(0, 3)) {
+    for (const res of ress.slice(0, 2)) {
       const en = englishTerm(res, cls) || null;
       addQ(res, en, "单结果词「" + res + "」", "L1", { sub: "", res });
     }
@@ -304,7 +304,22 @@ export class ReactSearchService {
     const rawCnPool: PoolItem[] = [];
     const rawEnPool: PoolItem[] = [];
     const queriesUsed: string[] = [];
+    let cnFailures = 0;
+    let enFailures = 0;
     const topicText = this.collectContext(projectId);
+
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const BACKOFF = [0, 2000, 6000, 15000];
+    const fetchWithRetry = async <T>(fn: () => Promise<T>): Promise<T | null> => {
+      for (let attempt = 0; attempt < BACKOFF.length; attempt++) {
+        try {
+          return await fn();
+        } catch {
+          if (attempt < BACKOFF.length - 1) await sleep(BACKOFF[attempt + 1]); // 429/网络抖动指数退避重试
+        }
+      }
+      return null;
+    };
 
     const pushUnique = (pool: PoolItem[], item: SearchOutcome["items"][number], level: string, citedBy: number, queryText: string) => {
       const key = item.doi || (item.title + "|" + item.authors);
@@ -328,28 +343,42 @@ export class ReactSearchService {
       const cnNeed = cnRequested > 0 && cnPool.length < cnRequested;
       const enNeed = enRequested > 0 && enPool.length < enRequested;
       if (!cnNeed && !enNeed) break;
+      await sleep(350); // 逐条间隔，礼貌访问数据源（防 429 限流）
       queriesUsed.push(q.zh);
       const pairCls = clsPair(q);
       if (cnNeed && /[\u4e00-\u9fa5]/.test(q.zh)) {
         try {
-          const outcome = await openalexSearch(q.zh, { language: "zh", rows: 30, signal: AbortSignal.timeout(30_000) });
-          for (const item of outcome.items) {
-            const typed = { ...item, region: "domestic" as const };
-            pushUnique(rawCnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.zh);
-            if (hardFilterPass(item.title, pairCls, "zh", q.level)) {
-              pushUnique(cnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.zh);
+          const oaCn = await fetchWithRetry(() => openalexSearch(q.zh, { language: "zh", rows: 30, signal: AbortSignal.timeout(30_000) }));
+          if (!oaCn) { cnFailures++; } else {
+            for (const item of oaCn.items) {
+              const typed = { ...item, region: "domestic" as const };
+              pushUnique(rawCnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.zh);
+              if (hardFilterPass(item.title, pairCls, "zh", q.level)) {
+                pushUnique(cnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.zh);
+              }
+            }
+          }
+          // 中文池第二源：Crossref 中文文献（与 OpenAlex 互补，分摊限流压力）
+          const crCn = await fetchWithRetry(() => crossrefSearch(q.zh, this.settings.getContactEmail(), AbortSignal.timeout(30_000), { rows: 30 }));
+          if (!crCn) { cnFailures++; } else if (crCn.status !== "error") {
+            for (const item of crCn.items) {
+              const typed = { ...item, region: "domestic" as const };
+              pushUnique(rawCnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.zh);
+              if (hardFilterPass(item.title, pairCls, "zh", q.level)) {
+                pushUnique(cnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.zh);
+              }
             }
           }
         } catch { /* 单源失败继续下一关键词 */ }
       }
       if (enNeed && q.en) {
+        const enQ = q.en;
         try {
-          const [oa, cr] = await Promise.allSettled([
-            openalexSearch(q.en, { language: "en", rows: 30, signal: AbortSignal.timeout(30_000) }),
-            crossrefSearch(q.en, this.settings.getContactEmail(), AbortSignal.timeout(30_000), { rows: 30 }),
-          ]);
-          if (oa.status === "fulfilled" && oa.value.status !== "error") {
-            for (const item of oa.value.items) {
+          const oa = await fetchWithRetry(() => openalexSearch(enQ, { language: "en", rows: 30, signal: AbortSignal.timeout(30_000) }));
+          const cr = await fetchWithRetry(() => crossrefSearch(enQ, this.settings.getContactEmail(), AbortSignal.timeout(30_000), { rows: 30 }));
+          if (!oa && !cr) { enFailures++; continue; }
+          if (oa && oa.status !== "error") {
+            for (const item of oa.items) {
               const typed = { ...item, region: "foreign" as const };
               pushUnique(rawEnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.en ?? q.zh);
               if (hardFilterPass(item.title, pairCls, "en", q.level)) {
@@ -357,8 +386,8 @@ export class ReactSearchService {
               }
             }
           }
-          if (cr.status === "fulfilled" && cr.value.status !== "error") {
-            for (const item of cr.value.items) {
+          if (cr && cr.status !== "error") {
+            for (const item of cr.items) {
               const typed = { ...item, region: "foreign" as const };
               pushUnique(rawEnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.en ?? q.zh);
               if (hardFilterPass(item.title, pairCls, "en", q.level)) {
@@ -372,8 +401,31 @@ export class ReactSearchService {
 
     const kwText = [...plan.subject, ...plan.result].join(" ");
     const simTarget = (item: PoolItem) => item.queryText ?? kwText ?? topicText;
-    const cnFiltered = cnPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, simTarget(i)) >= 0.2);
-    const enFiltered = enPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, simTarget(i)) >= 0.2);
+    const scoreItem = (item: { title: string; abstract?: string; citedBy?: number }) => {
+      const hay = (item.title + " " + (item.abstract ?? "")).toLowerCase();
+      let subHits = 0;
+      let resHits = 0;
+      for (const w of plan.subject) {
+        const vs = [...new Set([String(w).toLowerCase(), englishTerm(String(w), { subject: [], result: [], mediator: [], subjectExpansions: [], resultExpansions: [] }).toLowerCase()])].filter(Boolean);
+        if (vs.some((v) => hay.includes(v))) subHits++;
+      }
+      for (const w of plan.result) {
+        const vs = [...new Set([String(w).toLowerCase(), englishTerm(String(w), { subject: [], result: [], mediator: [], subjectExpansions: [], resultExpansions: [] }).toLowerCase()])].filter(Boolean);
+        if (vs.some((v) => hay.includes(v))) resHits++;
+      }
+      return { subHits, resHits, crossHit: subHits > 0 && resHits > 0, citedBy: item.citedBy ?? 0 };
+    };
+    const sortPool = (pool: PoolItem[]) => pool.sort((a, b) => {
+      const A = scoreItem(a);
+      const B = scoreItem(b);
+      if (A.crossHit !== B.crossHit) return A.crossHit ? -1 : 1;
+      const ha = A.subHits + A.resHits;
+      const hb = B.subHits + B.resHits;
+      if (ha !== hb) return hb - ha;
+      return B.citedBy - A.citedBy;
+    });
+    const cnFiltered = sortPool(cnPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, simTarget(i)) >= 0.2));
+    const enFiltered = sortPool(enPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, simTarget(i)) >= 0.2));
     let cnFound = Math.min(cnRequested, cnFiltered.length);
     let enFound = Math.min(enRequested, enFiltered.length);
 
@@ -441,8 +493,9 @@ export class ReactSearchService {
     const results = [...cnFiltered.slice(0, cnFound), ...enFiltered.slice(0, enFound)];
     const needMore = cnFound < cnRequested || enFound < enRequested;
     const counts = { cnRequested, enRequested, cnFound, enFound };
-    const parts = ["检索完成：国内 " + cnFound + "/" + cnRequested + "、国外 " + enFound + "/" + enRequested + "（已排除 " + excludedCount + " 篇已搜寻文献）"];
-    if (needMore) parts.push("数量未达标（真实数据源尽力检索，未编造）；可点「AI 再次查询」补充");
+    const parts = ["检索完成：国内 " + cnFound + "/" + cnRequested + "、国外 " + enFound + "/" + enRequested + "（已排除 " + excludedCount + " 篇已搜寻文献；中文原始取回 " + rawCnPool.length + " 条、英文原始取回 " + rawEnPool.length + " 条、严格命中 " + (cnPool.length + enPool.length) + " 条）"];
+    if (rawCnPool.length === 0 && rawEnPool.length === 0) parts.push("两个数据源都未取回结果：可能触发 OpenAlex/Crossref 限流（429）或网络异常，请稍候 1-2 分钟再试");
+    else if (needMore) parts.push("数量未达标（真实数据源尽力检索，未编造）；可点「AI 再次查询」补充");
     return {
       ok: results.length > 0 || !needMore,
       message: parts.join("；"),
@@ -467,7 +520,7 @@ export class ReactSearchService {
     try {
       const titles = outcome.results.map((r) => r.title).join("\n");
       const system = [
-        "你是文献检索结果核验器（ReAct）。核对返回文献是否：1) 数量达到 n 国内/y 国外；2) 标题是否踩中选题核心关键词（主体词+结果词）；3) 主题是否与选题一致。",
+        "你是文献检索结果核验器（ReAct）。核对返回文献是否：1) 数量达到 n 国内/y 国外；2) 标题是否踩中关键词——命中任一主体词+任一结果词即算踩点（其余概念如虚拟主播/社会临场感可在文献综述中补充，不要求全部命中）；3) 主题方向与选题一致。",
         "只输出 JSON：{\"pass\":true,\"note\":\"一句话结论\"}（pass 为 true 或 false）",
         "禁止编造文献；只做核验判断。",
       ].join("\n");

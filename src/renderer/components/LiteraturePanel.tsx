@@ -510,6 +510,16 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
             <h4>② AI 检索论文（按关键词方案逐个检索，结果输出到下方）</h4>
             <button className="btn btn-primary" disabled={reactBusy || !keywordPlan} onClick={() => void runReactSearch()}>{reactBusy ? "检索中…" : "开始检索"}</button>
           </div>
+          <div className="lit-search-row auto-counts-row">
+            <label className="row-label">总数</label>
+            <input className="input input-num" aria-label="自动检索总数" type="number" min={15} max={30} step={1} value={autoTotal} onChange={(e) => setAutoTotal(Number(e.target.value) || 15)} />
+            <label className="row-label">中文篇数</label>
+            <input className="input input-num" aria-label="中文篇数" type="number" min={0} max={autoTotal} step={1} value={autoCn} onChange={(e) => setAutoCn(Number(e.target.value) || 0)} />
+            <span className="muted">外文自动为 {Math.max(0, Number(autoTotal) - Number(autoCn))} 篇</span>
+            <span className="muted range-hint">总数范围：大于等于 15 篇、小于等于 30 篇</span>
+            <button className="btn btn-sm" onClick={() => setPrefModalOpen(true)}>选择偏好论文库{platformPrefs.platformKeys.length > 0 ? "（已选 " + platformPrefs.platformKeys.length + "）" : ""}</button>
+          </div>
+          {autoRangeWarn && <p className="banner banner-error">{autoRangeWarn}</p>}
           {reactOutcome ? (
             <div className="react-output">
               <div className="banner banner-info">国内 {reactOutcome.counts.cnFound}/{reactOutcome.counts.cnRequested}、国外 {reactOutcome.counts.enFound}/{reactOutcome.counts.enRequested} · 核验：{reactOutcome.verifyNote}</div>
@@ -529,16 +539,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
           <p className="muted">排除已保存与已搜寻文献后重新检索，避免重复；未完成首次检索时不可用。</p>
         </div>
         <p className="muted">根据「前期检索与选题」「研究问题与设计」里已填的方向、变量与摘要自动推导检索式，直接检索真实 OpenAlex 与 Crossref 数据源；每条文献的地址直接给出，可一键保存入库。再次检索会自动排除已保存与历史推荐的文献，得到不同的结果。语言只标记「中文/外文」，国内外归属需人工确认作者单位与出版地。</p>
-        <div className="lit-search-row auto-counts-row">
-          <label className="row-label">总数</label>
-          <input className="input input-num" aria-label="自动检索总数" type="number" min={15} max={30} step={1} value={autoTotal} onChange={(e) => setAutoTotal(Number(e.target.value) || 15)} />
-          <label className="row-label">中文篇数</label>
-          <input className="input input-num" aria-label="中文篇数" type="number" min={0} max={autoTotal} step={1} value={autoCn} onChange={(e) => setAutoCn(Number(e.target.value) || 0)} />
-          <span className="muted">外文自动为 {Math.max(0, Number(autoTotal) - Number(autoCn))} 篇</span>
-          <span className="muted range-hint">总数范围：大于等于 15 篇、小于等于 30 篇</span>
-          <button className="btn btn-sm" onClick={() => setPrefModalOpen(true)}>选择偏好论文库{platformPrefs.platformKeys.length > 0 ? "（已选 " + platformPrefs.platformKeys.length + "）" : ""}</button>
-        </div>
-        {autoRangeWarn && <p className="banner banner-error">{autoRangeWarn}</p>}
+
         {autoState && autoState.ok && <p className="muted">本次检索式：{autoState.queryUsed.join("；")}</p>}
         {autoState?.cnJumpLinks && autoState.cnJumpLinks.length > 0 && (
           <div className="preferred-links cn-jump">
