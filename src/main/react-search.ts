@@ -298,18 +298,21 @@ export class ReactSearchService {
     const excludedCount = exclude.size;
     const seenKeys = new Set<string>();
     const seenTitles = new Set<string>();
-    const cnPool: Array<SearchOutcome["items"][number] & { level: string; citedBy?: number }> = [];
-    const enPool: Array<SearchOutcome["items"][number] & { level: string; citedBy?: number }> = [];
+    type PoolItem = SearchOutcome["items"][number] & { level: string; citedBy?: number; queryText?: string };
+    const cnPool: PoolItem[] = [];
+    const enPool: PoolItem[] = [];
+    const rawCnPool: PoolItem[] = [];
+    const rawEnPool: PoolItem[] = [];
     const queriesUsed: string[] = [];
     const topicText = this.collectContext(projectId);
 
-    const pushUnique = (pool: typeof cnPool, item: SearchOutcome["items"][number], level: string, citedBy: number) => {
+    const pushUnique = (pool: PoolItem[], item: SearchOutcome["items"][number], level: string, citedBy: number, queryText: string) => {
       const key = item.doi || (item.title + "|" + item.authors);
       const normTitle = normalizeTitle(item.title);
       if (!key || seenKeys.has(key) || (normTitle && seenTitles.has(normTitle)) || exclude.has(item.doi)) return;
       seenKeys.add(key);
       if (normTitle) seenTitles.add(normTitle);
-      pool.push({ ...item, level, citedBy });
+      pool.push({ ...item, level, citedBy, queryText });
     };
 
     const clsPair = (q: KeywordPlan["queries"][number]): TermClassification => ({
@@ -329,64 +332,109 @@ export class ReactSearchService {
       const pairCls = clsPair(q);
       if (cnNeed && /[\u4e00-\u9fa5]/.test(q.zh)) {
         try {
-          const outcome = await openalexSearch(q.zh, { language: "zh", rows: 25, signal: AbortSignal.timeout(30_000) });
+          const outcome = await openalexSearch(q.zh, { language: "zh", rows: 30, signal: AbortSignal.timeout(30_000) });
           for (const item of outcome.items) {
-            if (!hardFilterPass(item.title, pairCls, "zh", q.level)) continue;
-            pushUnique(cnPool, { ...item, region: "domestic" as const }, q.level, Number((item as { citedBy?: number }).citedBy ?? 0));
+            const typed = { ...item, region: "domestic" as const };
+            pushUnique(rawCnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.zh);
+            if (hardFilterPass(item.title, pairCls, "zh", q.level)) {
+              pushUnique(cnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.zh);
+            }
           }
         } catch { /* 单源失败继续下一关键词 */ }
       }
       if (enNeed && q.en) {
         try {
           const [oa, cr] = await Promise.allSettled([
-            openalexSearch(q.en, { language: "en", rows: 25, signal: AbortSignal.timeout(30_000) }),
-            crossrefSearch(q.en, this.settings.getContactEmail(), AbortSignal.timeout(30_000), { rows: 25 }),
+            openalexSearch(q.en, { language: "en", rows: 30, signal: AbortSignal.timeout(30_000) }),
+            crossrefSearch(q.en, this.settings.getContactEmail(), AbortSignal.timeout(30_000), { rows: 30 }),
           ]);
           if (oa.status === "fulfilled" && oa.value.status !== "error") {
             for (const item of oa.value.items) {
-              if (!hardFilterPass(item.title, pairCls, "en", q.level)) continue;
-              pushUnique(enPool, { ...item, region: "foreign" as const }, q.level, Number((item as { citedBy?: number }).citedBy ?? 0));
+              const typed = { ...item, region: "foreign" as const };
+              pushUnique(rawEnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.en ?? q.zh);
+              if (hardFilterPass(item.title, pairCls, "en", q.level)) {
+                pushUnique(enPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.en ?? q.zh);
+              }
             }
           }
           if (cr.status === "fulfilled" && cr.value.status !== "error") {
             for (const item of cr.value.items) {
-              if (!hardFilterPass(item.title, pairCls, "en", q.level)) continue;
-              pushUnique(enPool, { ...item, region: "foreign" as const }, q.level, Number((item as { citedBy?: number }).citedBy ?? 0));
+              const typed = { ...item, region: "foreign" as const };
+              pushUnique(rawEnPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.en ?? q.zh);
+              if (hardFilterPass(item.title, pairCls, "en", q.level)) {
+                pushUnique(enPool, typed, q.level, Number((item as { citedBy?: number }).citedBy ?? 0), q.en ?? q.zh);
+              }
             }
           }
         } catch { /* 继续下一关键词 */ }
       }
     }
 
-    const cnFiltered = cnPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, topicText) >= 0.2);
-    const enFiltered = enPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, topicText) >= 0.2);
+    const kwText = [...plan.subject, ...plan.result].join(" ");
+    const simTarget = (item: PoolItem) => item.queryText ?? kwText ?? topicText;
+    const cnFiltered = cnPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, simTarget(i)) >= 0.2);
+    const enFiltered = enPool.filter((i) => ngramSimilarity(i.title + " " + i.abstract, simTarget(i)) >= 0.2);
     let cnFound = Math.min(cnRequested, cnFiltered.length);
     let enFound = Math.min(enRequested, enFiltered.length);
 
-    // 放宽二次检索：严格命中不足时，放宽为「主体或结果至少命中其一」并标注需核验（不编造，只是降低门槛）
-    const loosePool = (pool: typeof cnPool, seen: Set<string>) => {
-      const loose: typeof cnPool = [];
-      for (const item of pool) {
+    // 放宽二次检索：严格命中不足时，从原始池放宽为「标题或摘要至少命中任一关键词」，标注需核验（不编造，只是降低门槛）
+    const anyHit = (item: { title: string; abstract?: string }, zh: boolean): boolean => {
+      const hay = (item.title + " " + (item.abstract ?? "")).toLowerCase();
+      const variants = (w: string): string[] => {
+        const s = String(w).trim();
+        if (!s) return [];
+        const en = englishTerm(s, { subject: [], result: [], mediator: [], subjectExpansions: [], resultExpansions: [] });
+        return [...new Set([s.toLowerCase(), en.toLowerCase()])].filter(Boolean);
+      };
+      const hits = (w: string) => {
+        const vs = variants(w);
+        if (zh) return vs.some((v) => (item.title + " " + (item.abstract ?? "")).toLowerCase().includes(v));
+        return vs.some((v) => hay.includes(v));
+      };
+      return plan.subject.some(hits) || plan.result.some(hits);
+    };
+    const loosePool = (raw: typeof rawCnPool, seen: Set<string>) => {
+      const loose: typeof rawCnPool = [];
+      for (const item of raw) {
         const key = item.doi || (item.title + "|" + item.authors);
         if (seen.has(key)) continue;
-        const anyHit = /[\u4e00-\u9fa5]/.test(item.title)
-          ? plan.subject.some((s) => item.title.includes(s)) || plan.result.some((s) => item.title.includes(s))
-          : plan.subject.some((s) => item.title.toLowerCase().includes(String(s).toLowerCase())) || plan.result.some((s) => item.title.toLowerCase().includes(String(s).toLowerCase()));
-        if (!anyHit) continue;
-        if (ngramSimilarity(item.title + " " + item.abstract, topicText) < 0.15) continue;
+        const zh = /[\u4e00-\u9fa5]/.test(item.title);
+        if (!anyHit(item, zh)) continue;
+        if (ngramSimilarity(item.title + " " + item.abstract, (item as PoolItem).queryText ?? kwText ?? topicText) < 0.12) continue;
+        // 多词命中评分：命中不同关键词越多越好；主体侧与结果侧都命中（跨侧）优先
+        const hay = (item.title + " " + (item.abstract ?? "")).toLowerCase();
+        const hitSet = new Set<string>();
+        let subHits = 0;
+        let resHits = 0;
+        for (const w of plan.subject) {
+          const vs = [...new Set([String(w).toLowerCase(), englishTerm(String(w), { subject: [], result: [], mediator: [], subjectExpansions: [], resultExpansions: [] }).toLowerCase()])].filter(Boolean);
+          if (vs.some((v) => hay.includes(v))) { hitSet.add(String(w)); subHits++; }
+        }
+        for (const w of plan.result) {
+          const vs = [...new Set([String(w).toLowerCase(), englishTerm(String(w), { subject: [], result: [], mediator: [], subjectExpansions: [], resultExpansions: [] }).toLowerCase()])].filter(Boolean);
+          if (vs.some((v) => hay.includes(v))) { hitSet.add(String(w)); resHits++; }
+        }
         seen.add(key);
-        loose.push({ ...item, level: "loose" });
+        loose.push({ ...item, level: "loose", citedBy: Number((item as { citedBy?: number }).citedBy ?? 0), queryText: (item as PoolItem).queryText, hitCount: hitSet.size, crossHit: subHits > 0 && resHits > 0 } as never);
       }
+      // 排序：跨侧命中优先 → 命中词数多优先 → 引用高优先
+      loose.sort((a, b) => {
+        const A = a as unknown as { hitCount: number; crossHit: boolean; citedBy?: number };
+        const B = b as unknown as { hitCount: number; crossHit: boolean; citedBy?: number };
+        if (A.crossHit !== B.crossHit) return A.crossHit ? -1 : 1;
+        if (A.hitCount !== B.hitCount) return B.hitCount - A.hitCount;
+        return (B.citedBy ?? 0) - (A.citedBy ?? 0);
+      });
       return loose;
     };
     const strictKeys = new Set([...cnFiltered, ...enFiltered].map((i) => i.doi || (i.title + "|" + i.authors)));
     if (cnFound < cnRequested) {
-      const looseCn = loosePool(cnPool, strictKeys).slice(0, cnRequested - cnFound);
+      const looseCn = loosePool(rawCnPool, strictKeys).slice(0, cnRequested - cnFound);
       cnFiltered.push(...looseCn);
       cnFound = Math.min(cnRequested, cnFiltered.length);
     }
     if (enFound < enRequested) {
-      const looseEn = loosePool(enPool, strictKeys).slice(0, enRequested - enFound);
+      const looseEn = loosePool(rawEnPool, strictKeys).slice(0, enRequested - enFound);
       enFiltered.push(...looseEn);
       enFound = Math.min(enRequested, enFiltered.length);
     }
