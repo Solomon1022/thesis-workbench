@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="860" viewBox="0 0 1240 860" font-family="Microsoft YaHei, SimHei, sans-serif">
+<rect width="1240" height="860" fill="#f6f7f9"/>
+<text x="620" y="34" font-size="22" font-weight="bold" fill="#1a2b4a" text-anchor="middle">论文工作台 · 第三阶段文献检索升级 v2 —— 需求思维导图</text>
+<text x="620" y="58" font-size="12" fill="#7a8699" text-anchor="middle">状态：已确认 · 2026-11-22 · 草稿随需求更新</text>
+<line x1="180" y1="430" x2="320" y2="70" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="59" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="74" font-size="13" fill="#ffffff" text-anchor="middle">目标</text>
+<line x1="460" y1="70" x2="476" y2="34" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="38" font-size="12.5" fill="#2c3e50">真实多源检索</text>
+<line x1="460" y1="70" x2="476" y2="52" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="56" font-size="12.5" fill="#2c3e50">高相关结果</text>
+<line x1="460" y1="70" x2="476" y2="70" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="74" font-size="12.5" fill="#2c3e50">信息齐全卡片</text>
+<line x1="460" y1="70" x2="476" y2="88" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="92" font-size="12.5" fill="#2c3e50">入库+GB/T 7714</text>
+<line x1="460" y1="70" x2="476" y2="106" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="110" font-size="12.5" fill="#2c3e50">任意学科通用</text>
+<line x1="180" y1="430" x2="320" y2="144" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="133" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="148" font-size="13" fill="#ffffff" text-anchor="middle">用户与场景</text>
+<line x1="460" y1="144" x2="476" y2="126" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="130" font-size="12.5" fill="#2c3e50">本地桌面程序</text>
+<line x1="460" y1="144" x2="476" y2="144" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="148" font-size="12.5" fill="#2c3e50">一键AI检索论文</text>
+<line x1="460" y1="144" x2="476" y2="162" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="166" font-size="12.5" fill="#2c3e50">校园网/外网自动降级</text>
+<line x1="180" y1="430" x2="320" y2="218" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="207" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="222" font-size="13" fill="#ffffff" text-anchor="middle">检索源·国内池</text>
+<line x1="460" y1="218" x2="476" y2="182" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="186" font-size="12.5" fill="#2c3e50">知网题录直抓(必须)</text>
+<line x1="460" y1="218" x2="476" y2="200" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="204" font-size="12.5" fill="#2c3e50">失败降级跳转+导入</text>
+<line x1="460" y1="218" x2="476" y2="218" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="222" font-size="12.5" fill="#2c3e50">汉斯出版社OA真实取回</text>
+<line x1="460" y1="218" x2="476" y2="236" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="240" font-size="12.5" fill="#2c3e50">OpenAlex中文子集</text>
+<line x1="460" y1="218" x2="476" y2="254" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="258" font-size="12.5" fill="#2c3e50">Crossref</text>
+<line x1="180" y1="430" x2="320" y2="292" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="281" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="296" font-size="13" fill="#ffffff" text-anchor="middle">检索源·国外池</text>
+<line x1="460" y1="292" x2="476" y2="256" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="260" font-size="12.5" fill="#2c3e50">OpenAlex(英文式)</text>
+<line x1="460" y1="292" x2="476" y2="274" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="278" font-size="12.5" fill="#2c3e50">Crossref(英文式)</text>
+<line x1="460" y1="292" x2="476" y2="292" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="296" font-size="12.5" fill="#2c3e50">汉斯出版社(英文式)</text>
+<line x1="460" y1="292" x2="476" y2="310" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="314" font-size="12.5" fill="#2c3e50">GoogleScholar跳转</text>
+<line x1="460" y1="292" x2="476" y2="328" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="332" font-size="12.5" fill="#2c3e50">BASE跳转(可升级密钥)</text>
+<line x1="180" y1="430" x2="320" y2="366" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="355" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="370" font-size="13" fill="#ffffff" text-anchor="middle">检索规则</text>
+<line x1="460" y1="366" x2="476" y2="312" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="316" font-size="12.5" fill="#2c3e50">默认国内15+国外2</text>
+<line x1="460" y1="366" x2="476" y2="330" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="334" font-size="12.5" fill="#2c3e50">近5年且必含当年</text>
+<line x1="460" y1="366" x2="476" y2="348" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="352" font-size="12.5" fill="#2c3e50">期刊优先·其他少量</text>
+<line x1="460" y1="366" x2="476" y2="366" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="370" font-size="12.5" fill="#2c3e50">一键到底·无关键词UI</text>
+<line x1="460" y1="366" x2="476" y2="384" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="388" font-size="12.5" fill="#2c3e50">检索计划只读展示</text>
+<line x1="460" y1="366" x2="476" y2="402" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="406" font-size="12.5" fill="#2c3e50">429限流保护</text>
+<line x1="460" y1="366" x2="476" y2="420" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="424" font-size="12.5" fill="#2c3e50">缺量如实报告</text>
+<line x1="180" y1="430" x2="320" y2="440" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="429" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="444" font-size="13" fill="#ffffff" text-anchor="middle">结果卡片字段</text>
+<line x1="460" y1="440" x2="476" y2="413" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="417" font-size="12.5" fill="#2c3e50">被引次数(必显)</text>
+<line x1="460" y1="440" x2="476" y2="431" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="435" font-size="12.5" fill="#2c3e50">期刊等级标记(必显)</text>
+<line x1="460" y1="440" x2="476" y2="449" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="453" font-size="12.5" fill="#2c3e50">关键词(必显)</text>
+<line x1="460" y1="440" x2="476" y2="467" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="471" font-size="12.5" fill="#2c3e50">摘要(可选)</text>
+<line x1="180" y1="430" x2="320" y2="514" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="503" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="518" font-size="13" fill="#ffffff" text-anchor="middle">保存与引用</text>
+<line x1="460" y1="514" x2="476" y2="496" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="500" font-size="12.5" fill="#2c3e50">一键入库·去重</text>
+<line x1="460" y1="514" x2="476" y2="514" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="518" font-size="12.5" fill="#2c3e50">复制GB/T 7714</text>
+<line x1="460" y1="514" x2="476" y2="532" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="536" font-size="12.5" fill="#2c3e50">docx导出引用表</text>
+<line x1="180" y1="430" x2="320" y2="588" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="577" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="592" font-size="13" fill="#ffffff" text-anchor="middle">硬约束</text>
+<line x1="460" y1="588" x2="476" y2="561" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="565" font-size="12.5" fill="#2c3e50">不编造文献</text>
+<line x1="460" y1="588" x2="476" y2="579" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="583" font-size="12.5" fill="#2c3e50">不绕验证码·不批量全文</text>
+<line x1="460" y1="588" x2="476" y2="597" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="601" font-size="12.5" fill="#2c3e50">Key不进前端/日志/导出</text>
+<line x1="460" y1="588" x2="476" y2="615" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="619" font-size="12.5" fill="#2c3e50">只增量追加</text>
+<line x1="180" y1="430" x2="320" y2="662" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="651" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="666" font-size="13" fill="#ffffff" text-anchor="middle">暂不做</text>
+<line x1="460" y1="662" x2="476" y2="635" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="639" font-size="12.5" fill="#2c3e50">综述初稿</text>
+<line x1="460" y1="662" x2="476" y2="653" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="657" font-size="12.5" fill="#2c3e50">PDF下载</text>
+<line x1="460" y1="662" x2="476" y2="671" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="675" font-size="12.5" fill="#2c3e50">平台账号/服务端</text>
+<line x1="460" y1="662" x2="476" y2="689" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="693" font-size="12.5" fill="#2c3e50">语义向量/MCP</text>
+<line x1="180" y1="430" x2="320" y2="736" stroke="#b8c4d8" stroke-width="1.4"/>
+<rect x="320" y="725" width="140" height="22" rx="11" fill="#2f6fed" />
+<text x="390" y="740" font-size="13" fill="#ffffff" text-anchor="middle">AI 与降级</text>
+<line x1="460" y1="736" x2="476" y2="709" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="713" font-size="12.5" fill="#2c3e50">DeepSeek v4 PRO全角色</text>
+<line x1="460" y1="736" x2="476" y2="727" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="731" font-size="12.5" fill="#2c3e50">25–60s属正常</text>
+<line x1="460" y1="736" x2="476" y2="745" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="749" font-size="12.5" fill="#2c3e50">402/超时→提示</text>
+<line x1="460" y1="736" x2="476" y2="763" stroke="#d4dbe7" stroke-width="1"/>
+<text x="476" y="767" font-size="12.5" fill="#2c3e50">自动词典兜底不中断</text>
+<ellipse cx="120" cy="430" rx="80" ry="26" fill="#1a5bd6"/>
+<text x="120" y="435" font-size="15" font-weight="bold" fill="#ffffff" text-anchor="middle">文献检索升级 v2</text>
+</svg>

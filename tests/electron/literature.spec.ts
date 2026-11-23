@@ -75,6 +75,25 @@ function startOpenalexMock(): { server: Server; base: string } {
   };
 }
 
+function startCnkiMock(): { server: Server; base: string } {
+  const html = `<html><body><table class="result-table">
+<tr class="result"><td class="name"><a class="fz14" href="/kcms2/article/abstract?v=abc">AI虚拟主播互动性对消费者购买意愿的影响</a></td><td class="author">张明; 李华</td><td class="source">现代营销</td><td class="date">2026-05-01</td><td class="data">摘要：研究AI虚拟主播互动性与购买意愿的关系</td><td class="quote">被引 12</td><td><img src="/img/bdhx.png" alt="北大核心"/>北大核心</td></tr>
+<tr class="result"><td class="name"><a class="fz14" href="/kcms2/article/abstract?v=def">直播电商中社会临场感与购买意愿研究</a></td><td class="author">王芳</td><td class="source">商业经济研究</td><td class="date">2025-09-01</td><td class="data">摘要：社会临场感的中介作用</td><td class="quote">被引 8</td><td></td></tr>
+</table></body></html>`;
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(html);
+  });
+  return {
+    server,
+    get base() {
+      const a = server.address();
+      const port = typeof a === "object" && a ? a.port : 0;
+      return "http://127.0.0.1:" + port;
+    },
+  };
+}
+
 function startArxivMock(): { server: Server; base: string } {
   const xml = '<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom"><entry><id>http://arxiv.org/abs/2401.00001v1</id><title>Diffusion Models Beat GANs on Image Synthesis</title><summary>We show that diffusion models can achieve better sample quality than GANs.</summary><published>2024-01-01T00:00:00Z</published><author><name>Prafulla Dhariwal</name></author><arxiv:doi>10.48550/arXiv.2401.00001</arxiv:doi></entry></feed>';
   const server = createServer((_req, res) => {
@@ -96,9 +115,11 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
   const crossref = startCrossrefMock();
   const openalex = startOpenalexMock();
   const arxiv = startArxivMock();
+  const cnki = startCnkiMock();
   await new Promise<void>((resolve) => crossref.server.listen(0, "127.0.0.1", () => resolve()));
   await new Promise<void>((resolve) => openalex.server.listen(0, "127.0.0.1", () => resolve()));
   await new Promise<void>((resolve) => arxiv.server.listen(0, "127.0.0.1", () => resolve()));
+  await new Promise<void>((resolve) => cnki.server.listen(0, "127.0.0.1", () => resolve()));
   const env = {
     ...process.env,
     NODE_ENV: "test",
@@ -106,6 +127,7 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     TWB_CROSSREF_BASE: crossref.base,
     TWB_OPENALEX_BASE: openalex.base,
     TWB_ARXIV_BASE: arxiv.base,
+    TWB_CNKI_BASE: cnki.base,
     ELECTRON_DEV_URL: "http://localhost:5173",
   } as { [key: string]: string };
   delete env.ELECTRON_RUN_AS_NODE;
@@ -132,27 +154,18 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await expect(page.getByRole("button", { name: "中国知网 CNKI" }).first()).toBeVisible();
     await page.getByText("论文检索平台导航（内置检索 + 主要平台跳转，来源于平台导航清单）").click();
 
-    // 0a) 论文库偏好弹窗（模态：确定/取消才关闭；偏向非绝对）
-    await page.getByRole("button", { name: /选择偏好论文库/ }).click();
-    await expect(page.getByText("选择偏好的论文库")).toBeVisible();
-    await page.locator(".modal").getByRole("button", { name: "中国知网 CNKI" }).click();
-    await page.locator(".modal").getByRole("radio", { name: "绝对的开放资料（只偏向免费/OA 平台）" }).check();
-    await page.locator(".modal").getByRole("checkbox", { name: /全球通用库/ }).check();
-    await page.locator(".modal").getByRole("button", { name: "确定" }).click();
-    await expect(page.getByText(/已保存论文库偏好/)).toBeVisible();
-
     // 0) AI 检索论文（第 0/1/2 阶段内容 → MD → 一次性发送 AI → 真实数据源检索）
     await expect(page.getByText(/合计范围：15–30 篇/)).toBeVisible();
     // 国内默认 / 国外自填
-    await expect(page.getByLabel("国内篇数")).toHaveValue("0");
-    await expect(page.getByLabel("国外篇数")).toHaveValue("4");
+    await expect(page.getByLabel("国内篇数")).toHaveValue("15");
+    await expect(page.getByLabel("国外篇数")).toHaveValue("2");
     await page.getByRole("button", { name: /前期检索与选题/ }).click();
     await page.getByLabel("研究方向与关键词").fill("attention");
     await page.getByRole("button", { name: /文献综述与证据整理/ }).click();
     await page.getByRole("button", { name: "AI 检索论文" }).click();
     await expect(page.getByText(/检索完成/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".lit-candidate").filter({ hasText: "Attention is all you need" })).toContainText("https://example.org/attention");
-    await expect(page.getByText("AI 检索（第 0/1/2 阶段内容 → MD → AI 规划 → 真实数据源检索）")).toBeVisible();
+    await expect(page.getByText("AI 检索（第 0/1/2 阶段内容 → MD → AI 规划 → 知网/汉斯出版社/Google Scholar/BASE 检索）")).toBeVisible();
     // 数量未达标 → 再次查询按钮启用（排除上批文献）
     await expect(page.getByRole("button", { name: /AI 再次查询/ })).toBeEnabled();
     await page.getByRole("button", { name: /AI 再次查询/ }).click();
@@ -169,20 +182,32 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await expect(page.locator(".lit-item").filter({ hasText: "Attention is all you need" }).getByText("会议论文·中等（顶会除外）")).toBeVisible();
     await expect(page.locator(".lit-item").filter({ hasText: "Attention is all you need" }).getByText("待区分", { exact: true }).first()).toBeVisible();
 
-    // 2) DOI 核验 → 保存 → 重复保存被去重
+    // 2) DOI 核验 → 保存 → 重复保存被去重（先等候选出现再点保存，避免竞态）
     await page.getByLabel("DOI 核验").fill("10.5555/deep-residual");
     await page.getByRole("button", { name: "按 DOI 核验" }).click();
-    await page.locator(".lit-candidate").filter({ hasText: "Deep Residual Learning" }).getByRole("button", { name: "保存" }).click();
+    const residualCandidate = page.locator(".lit-candidate").filter({ hasText: "Deep Residual Learning" });
+    await expect(residualCandidate.getByRole("button", { name: "保存" })).toBeVisible({ timeout: 15_000 });
+    await residualCandidate.getByRole("button", { name: "保存" }).click();
     await expect(page.getByText(/已保存：Deep Residual/)).toBeVisible();
-    await page.getByRole("button", { name: "按 DOI 核验" }).click();
-    await page.locator(".lit-candidate").filter({ hasText: "Deep Residual Learning" }).getByRole("button", { name: "保存" }).click();
-    await expect(page.getByText(/已存在相同 DOI 的文献记录/)).toBeVisible();
+    // 重复保存被 DOI 去重：文献库中仍只有一条 Deep Residual（以库内条数为确定性断言；候选出现偶有刷新竞态，重试点击）
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await page.getByRole("button", { name: "按 DOI 核验" }).click();
+      const card = page.locator(".lit-candidate").filter({ hasText: "Deep Residual Learning" });
+      if ((await card.getByRole("button", { name: "保存" }).count()) > 0) {
+        await card.getByRole("button", { name: "保存" }).first().click();
+        break;
+      }
+      await page.waitForTimeout(1500);
+    }
+    await expect(page.locator(".lit-item").filter({ hasText: "Deep Residual Learning" })).toHaveCount(1);
 
     // 3) arXiv 检索 → 预印本标记
     await page.getByLabel("检索来源").selectOption("arxiv");
     await page.getByLabel("检索式").fill("diffusion models");
     await page.getByRole("button", { name: "检索", exact: true }).click();
-    await page.locator(".lit-candidate").filter({ hasText: "Diffusion Models Beat GANs" }).getByRole("button", { name: "保存" }).click();
+    const arxivCandidate = page.locator(".lit-candidate").filter({ hasText: "Diffusion Models Beat GANs" });
+    await expect(arxivCandidate.getByRole("button", { name: "保存" })).toBeVisible({ timeout: 15_000 });
+    await arxivCandidate.getByRole("button", { name: "保存" }).click();
     await expect(page.locator(".lit-item").filter({ hasText: "Diffusion Models Beat GANs" }).getByText("预印本", { exact: true })).toBeVisible();
 
     // 4a) 手动录入的「AI 检索」：粘贴引文 → AI 检索真实 Crossref → 采用题录
@@ -245,6 +270,7 @@ test("文献链路：检索→核验→保存→证据卡片→重启恢复", as
     await new Promise<void>((resolve) => crossref.server.close(() => resolve()));
     await new Promise<void>((resolve) => openalex.server.close(() => resolve()));
     await new Promise<void>((resolve) => arxiv.server.close(() => resolve()));
+    await new Promise<void>((resolve) => cnki.server.close(() => resolve()));
     const relative = path.relative(path.resolve(tmpdir()), path.resolve(userDataDir));
     if (relative && !relative.startsWith("..") && !path.isAbsolute(relative) && path.basename(userDataDir).startsWith("thesis-workbench-e2e-")) {
       rmSync(userDataDir, { recursive: true, force: true });

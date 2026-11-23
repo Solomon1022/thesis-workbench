@@ -3,6 +3,8 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { ThesisDB } from "./db";
 import { registerIpc } from "./ipc";
+import { AiJobRegistry } from "./ai-jobs";
+import { startBridgeServer } from "./bridge-server";
 import { SettingsService } from "./settings-service";
 import { LiteratureService } from "./literature-service";
 import { Stage4Service } from "./stage4-service";
@@ -79,7 +81,18 @@ if (gotLock) {
     db = new ThesisDB(path.join(app.getPath("userData"), "thesis-workbench.db"));
     const settingsService = new SettingsService(db);
     const literatureService = new LiteratureService(db, settingsService, app.getPath("userData"));
-    registerIpc(db, settingsService, literatureService, new Stage4Service(db, settingsService), new WritingService(db, settingsService), new DataService(db, settingsService, app.getPath("userData")), new ExportService(db, app.getPath("userData")), new DocumentService(db), new AiAssistService(db, settingsService), new ReactSearchService(db, settingsService));
+    registerIpc(db, settingsService, literatureService, new Stage4Service(db, settingsService), new WritingService(db, settingsService), new DataService(db, settingsService, app.getPath("userData")), new ExportService(db, app.getPath("userData")), new DocumentService(db), new AiAssistService(db, settingsService), new ReactSearchService(db, settingsService), new AiJobRegistry(db));
+    // 本地桥服务（浏览器扩展回填通道；仅 127.0.0.1 + token）
+    startBridgeServer({
+      db,
+      literature: literatureService,
+      userDataDir: app.getPath("userData"),
+      onImported: (projectId, summary) => {
+        for (const w of BrowserWindow.getAllWindows()) {
+          if (!w.isDestroyed()) w.webContents.send("ai:bridgeImported", { projectId, summary });
+        }
+      },
+    });
     createWindow();
   }).catch((error) => {
     console.error("[main] startup error:", error);

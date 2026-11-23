@@ -143,6 +143,26 @@ export interface ProposalSection {
 }
 
 /** 阶段 4 服务：AI 只做草稿与框架，依据必须来自真实文献库；所有输出标记 AI 生成。 */
+// 默认开题框架模板：严格按照学校《本科毕业论文（设计）开题报告》表格架构
+// （研究目的意义与现状 / 拟研究的主要问题新颖性方法 两大块由 AI 分节生成；
+//   主要参考文献与整体进度安排由程序按文献库与截止时间生成，保证真实）
+export const DEFAULT_PROPOSAL_TEMPLATE = [
+  "# 研究目的、意义（价值）及相关领域研究现状",
+  "## 一、研究目的",
+  "## 二、研究意义",
+  "## 三、相关领域研究现状",
+  "",
+  "# 拟研究的主要问题、新颖性及拟采用的研究方法",
+  "## 一、拟研究的主要问题",
+  "## 二、本文研究的新颖性",
+  "## 三、拟采用的研究方法",
+  "",
+  "# 主要参考文献（程序自动生成）",
+  "",
+  "# 整体进度安排（程序自动生成）",
+  "",
+].join("\n");
+
 export class Stage4Service {
   constructor(
     private db: ThesisDB,
@@ -292,34 +312,196 @@ export class Stage4Service {
   }
 
   /** 开题报告章节框架。 */
-  async generateProposal(projectId: string): Promise<{ ok: boolean; message: string; sections?: ProposalSection[]; provider?: string; model?: string }> {
-    const role = this.requireRole();
-    const project = this.db.getProjectDetail(projectId);
-    const design = project.content["design"] ?? {};
-    const designText = Object.entries(design).map(([k, v]) => k + ": " + v).join("\n") || "（研究设计尚无内容）";
-    const candidates = this.db.listTopicCandidates(projectId).map((c) => c.question).join("\n") || "（无已保存候选方向）";
-    const literature = this.db.listLiterature(projectId).slice(0, 12);
-    const litText = literature.length > 0 ? this.litLines(literature) : "（文献库为空：不得引用文献）";
-    const system = [
-      "你是开题报告助手。基于研究设计内容与文献依据，生成开题报告章节框架。",
-      "只输出 JSON，不要任何解释：",
-      '{"sections":[{"title":"章节标题","content":"草稿段落"}]}',
-      "章节建议：研究背景与问题、研究目标与内容、研究方法与技术路线、预期结果、进度安排（可增减）。",
-      "引用文献用「[作者, 年份]」格式，只能引用提供的文献；不确定的内容标注「待核验」；禁止编造文献、数据与方法结果。",
-    ].join("\n");
-    const user = "研究设计内容：\n" + designText + "\n\n候选方向：\n" + candidates + "\n\n文献依据：\n" + litText;
-    const content = await this.ask(role, system, user);
-    const parsed = extractJson(content) as { sections?: unknown } | null;
-    const sections = Array.isArray(parsed?.sections)
-      ? parsed.sections.map((s) => {
-          const r = (s ?? {}) as { title?: unknown; content?: unknown };
-          return { title: String(r.title ?? "").trim(), content: String(r.content ?? "").trim() };
-        }).filter((s) => s.title.length > 0).slice(0, 10)
-      : [];
-    if (sections.length === 0) {
-      return { ok: false, message: "模型未返回有效章节框架（未写入任何内容）" };
+  /** 解析开题框架模板：每个一级标题为一节；一级以下结构随该节一起交给 AI */
+  private parseTemplate(text: string): string[] {
+    const titles: string[] = [];
+    for (const line of String(text ?? "").split(/\r?\n/)) {
+      const m = line.match(/^#\s+(.+)$/);
+      if (m) titles.push(m[1].trim());
     }
-    return { ok: true, message: "开题框架已生成（AI 草稿，请人工复核与编辑）", sections, provider: role.channel.name, model: role.channel.model };
+    return titles.length > 0 ? titles : ["研究目的、意义（价值）及相关领域研究现状", "拟研究的主要问题、新颖性及拟采用的研究方法", "主要参考文献", "整体进度安排"];
+  }
+
+  /** 第 0/1/2 阶段全部内容 → Markdown（与文献检索发送给 AI 的 MD 同构；不含候选方向——生成开题框架以主研究方向为准） */
+  private buildStageMd(projectId: string): string {
+    const detail = this.db.getProjectDetail(projectId);
+    const p0 = detail.project;
+    const topic = detail.content["topic"] ?? {};
+    const design = detail.content["design"] ?? {};
+    const writing = detail.content["writing"] ?? {};
+    const L: string[] = [];
+    const field = (label: string, value: unknown) => {
+      const v = String(value ?? "").trim();
+      if (v) L.push("- " + label + "：" + v);
+    };
+    L.push("# 论文信息（第 0/1/2 阶段汇总）");
+    L.push("## 第 0 阶段 · 建立项目");
+    field("项目名称", p0.name);
+    field("学科", p0.disciplines.join("、"));
+    field("学历", p0.educationLevel);
+    const m = p0.materials as unknown as Record<string, string>;
+    if (m) {
+      field("已有题目", m.title);
+      field("已有文献", m.literature);
+      field("已有数据", m.data);
+      field("已有草稿", m.draft);
+      field("备注", m.notes);
+    }
+    L.push("## 第 1 阶段 · 前期检索与选题");
+    field("研究方向（主研究方向，生成开题报告以此为准）", topic["direction"]);
+    field("变量（JSON）", topic["variables"]);
+    field("样本可获得性", topic["sample_access"]);
+    L.push("## 第 2 阶段 · 研究问题与设计");
+    field("研究问题", design["research_question"]);
+    field("理论构念", design["constructs"]);
+    field("变量角色", design["variable_roles"]);
+    field("测量方式", design["measures"]);
+    field("样本与抽样设计", design["sampling"]);
+    field("论文摘要", design["abstract"]);
+    field("内容框架（章节提纲）", design["outline"]);
+    field("摘要与关键词", design["abstract_keywords"]);
+    field("写作关键词", writing["keywords"]);
+    const hyps = this.db.listHypotheses(projectId);
+    if (hyps.length > 0) {
+      L.push("## 研究假设");
+      for (const h of hyps) L.push("- " + h.number + "：" + h.statement + "（IV：" + h.iv + "；DV：" + h.dv + "；依据：" + h.basis + "）");
+    }
+    return L.join("\n");
+  }
+
+  /** 程序生成 GB/T 7714 主要参考文献（仅用文献库真实条目，绝不编造） */
+  private gbtReferences(projectId: string): string[] {
+    const lit = this.db.listLiterature(projectId);
+    const lines: string[] = [];
+    lit.slice(0, 200).forEach((l, i) => {
+      const typeCode = l.refType === "thesis" ? "D" : l.refType === "conference" ? "C" : "J";
+      const authors = (l.authors ?? "").trim();
+      const venue = (l.venue ?? "").trim();
+      const year = (l.year ?? "").trim();
+      let line = "[" + (i + 1) + "] " + (authors ? authors + ". " : "") + (l.title ?? "").trim();
+      line += "[" + typeCode + "].";
+      if (venue) line += " " + venue + (year ? ", " + year : "") + ".";
+      else if (year) line += " " + year + ".";
+      if (l.doi) line += " DOI: " + l.doi + ".";
+      lines.push(line);
+    });
+    return lines;
+  }
+
+  /** 程序生成整体进度安排（模板化，不交给 AI 编造） */
+  private schedulePlan(projectId: string): string[] {
+    const p = this.db.getProjectDetail(projectId).project;
+    const deadline = p.deadline ? "（项目截止时间：" + p.deadline + "，各阶段应在此前完成）" : "（按学校要求时间节点倒排，各阶段时间以指导教师要求为准）";
+    return [
+      "一、开题阶段：完成开题报告撰写与修改，通过开题答辩。",
+      "二、研究设计阶段：确定变量测量与问卷，完成预调研与问卷修订。",
+      "三、数据收集阶段：发放与回收问卷，完成数据清洗。",
+      "四、统计分析阶段：信效度检验、相关与回归分析、中介效应检验。",
+      "五、论文撰写阶段：完成论文初稿与修改。",
+      "六、定稿与答辩阶段：格式排版、查重、定稿与答辩准备。",
+      deadline,
+    ];
+  }
+
+  /** 开题报告：严格按学校《开题报告》表格架构生成——AI 只写两大块内容，
+   *  参考文献与进度安排由程序按文献库/截止时间生成（真实、不编造）；流式逐节回调 */
+  async generateProposal(
+    projectId: string,
+    onSection?: (index: number, total: number, title: string, content: string) => void,
+  ): Promise<{ ok: boolean; message: string; sections?: ProposalSection[]; md?: string; provider?: string; model?: string }> {
+    const role = this.requireRole();
+    const stageMd = this.buildStageMd(projectId);
+    // 第 3 阶段文献库：全部文献（不设上限；防 token 爆炸兜底 300 条并如实标注）
+    const allLit = this.db.listLiterature(projectId);
+    const litOverflow = allLit.length > 300;
+    const literature = allLit.slice(0, 300);
+    const litText = literature.length > 0
+      ? this.litLines(literature) + (litOverflow ? "\n（文献较多，仅列出前 300 条，其余请在文献库核对；引用只能来自这里列出的文献）" : "")
+      : "（文献库为空：不得引用任何文献，依据一律标注「待核验」）";
+    const template = this.db.getAppSetting("proposal_template") || DEFAULT_PROPOSAL_TEMPLATE;
+    // 程序生成的章节不交给 AI：参考文献、进度安排、指导教师意见、填写说明
+    const PROGRAM_SECTIONS = /参考文献|进度安排|指导教师|填写说明/;
+    const aiSections = this.parseTemplate(template).filter((t) => !PROGRAM_SECTIONS.test(t));
+    const rules = [
+      "你是本科毕业论文（设计）开题报告写作助手。请模仿管理学实证期刊论文绪论的写法：语言学术规范、具体充实，避免空话套话与「首先/其次/最后」式堆砌。",
+      "凡涉及数据、事实必须注明出处（机构+报告名+年份）；没有真实出处的数据一律不得出现，相关内容标注「待核验」；严禁编造数字、文献与结论。",
+      "引用文献用「[作者, 年份]」格式，只能引用下方「文献依据」中列出的文献；未列出的文献禁止引用。",
+      "结构要求：研究现状先总起（现有研究形成的线索），再按国内、国外逐篇概括（作者+方法+核心发现，一篇一句），最后简要评述研究缺口；研究目的用「本文旨在……具体而言，一是……二是……三是……」结构；研究意义分理论意义与实践意义两段；拟研究的主要问题围绕论文题目给出 3-4 个层层递进的问题；新颖性对比已有研究说明本文在研究对象、中介机制或情境上的不同；拟采用的研究方法结合论文已定方法说明方法、量表、样本与统计检验思路。",
+      "字数：研究现状 800-1200 字；其余每个小节 300-600 字。",
+      "生成依据为「主研究方向」；候选研究方向不纳入生成依据（已忽略）。",
+      "只输出该部分的 Markdown（含「一、二、三」小节的二级标题），不要输出任何解释。",
+    ].join("\n");
+    const generated: ProposalSection[] = [];
+    const failed: string[] = [];
+    const total = aiSections.length;
+    for (let i = 0; i < total; i++) {
+      const title = aiSections[i];
+      const system = "现在只写开题报告「" + title + "」这一部分。" + rules;
+      try {
+        const content = await this.ask(role, system, "论文信息：\n" + stageMd + "\n\n文献依据：\n" + litText + "\n\n请写开题报告部分：" + title);
+        const text = String(content ?? "").trim();
+        if (!text) { failed.push(title); continue; }
+        generated.push({ title, content: text });
+        onSection?.(i, total, title, text);
+      } catch (e) {
+        failed.push(title + "（" + (e instanceof Error ? e.message.slice(0, 60) : String(e)) + "）");
+      }
+    }
+    if (generated.length === 0) {
+      return { ok: false, message: "模型未返回有效章节内容（未写入任何内容）" + (failed.length ? "；失败章节：" + failed.join("、") : "") };
+    }
+    // 汇总 MD：标题 → 信息表（学校模板字段） → AI 两大块 → 程序生成的参考文献/进度/意见/说明
+    const detail = this.db.getProjectDetail(projectId);
+    const p0 = detail.project;
+    const mdParts: string[] = [
+      "# 本科毕业论文（设计）开题报告",
+      "",
+      "**论文（设计）题目：** " + p0.name,
+      "",
+      "- 学院：＿＿＿＿＿＿",
+      "- 专业：" + (p0.disciplines.join("、") || "＿＿＿＿＿＿"),
+      "- 年级：" + (p0.educationLevel || "＿＿＿＿＿＿"),
+      "- 班级：＿＿＿＿＿＿",
+      "- 学生姓名：＿＿＿＿＿＿",
+      "- 学号：＿＿＿＿＿＿",
+      "- 指导教师姓名：＿＿＿＿＿＿",
+      "- 指导教师职称 / 学历：＿＿＿＿＿＿",
+      "- 完成形式：＿＿＿＿＿＿",
+      "- 选题方式：＿＿＿＿＿＿",
+      "- 题目来源：＿＿＿＿＿＿",
+      "- 题目类型：＿＿＿＿＿＿",
+      "- 计划起止时间：" + (p0.deadline ? p0.deadline + " 前完成" : "＿＿＿＿＿＿"),
+      "",
+    ];
+    for (const s of generated) mdParts.push("## " + s.title + "\n\n" + s.content);
+    // 主要参考文献：程序按文献库生成（保证真实，不交给 AI）
+    const refs = this.gbtReferences(projectId);
+    mdParts.push("## 主要参考文献");
+    mdParts.push(refs.length > 0 ? refs.join("\n") : "（文献库为空：请先在「文献综述与证据整理」阶段保存文献，再重新生成开题报告）");
+    // 整体进度安排：程序生成
+    mdParts.push("", "## 整体进度安排");
+    mdParts.push(this.schedulePlan(projectId).join("\n"));
+    // 指导教师意见（留空，打印后由教师填写）
+    mdParts.push("", "## 指导教师意见");
+    mdParts.push("＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿");
+    mdParts.push("", "指导教师签字：＿＿＿＿＿＿", "");
+    // 附：填写说明（与学校模板一致）
+    mdParts.push("## 附：填写说明");
+    mdParts.push(
+      "- 完成形式：学术论文、毕业设计、案例分析、调研报告、翻译作品、毕业创作、项目策划、创业模拟、实验（实践）报告、作品表演等。",
+      "- 选题方式：学生自拟、教师指定、师生双选。",
+      "- 题目来源：生产实际、社会实践、实习实验、科研课题、其它。",
+      "- 题目类型：理论研究、应用研究、工程工业设计、艺美设计、综合性艺术与学术训练、其它。",
+    );
+    const md = mdParts.join("\n");
+    return {
+      ok: true,
+      message: "开题报告已生成（AI 草稿，请人工复核与编辑；参考文献与进度安排由程序按文献库与截止时间生成）" + (failed.length ? "；以下部分生成失败需人工补写：" + failed.join("、") : ""),
+      sections: generated,
+      md,
+      provider: role.channel.name,
+      model: role.channel.model,
+    };
   }
 
   // ---- 版本 ----

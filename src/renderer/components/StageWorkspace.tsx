@@ -323,7 +323,13 @@ export function StageWorkspace({ detail, stageKey, onStatus, onContent, onProjec
           )}
 
           {AI_STAGES.includes(stageKey) && (
-            <AiAssistant detail={detail} stageKey={stageKey} targets={aiTargets} onFill={handleAiFill} />
+            <AiAssistant
+              detail={detail}
+              stageKey={stageKey}
+              targets={aiTargets}
+              onFill={handleAiFill}
+              notice={stageKey === "proposal" ? "本 AI 助手仅用于提问交流，不生成开题报告；开题报告请使用下方「开题报告框架」生成与编辑。" : undefined}
+            />
           )}
 
           {stageKey === "topic" && savedDirections.length > 0 && (

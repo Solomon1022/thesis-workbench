@@ -6,8 +6,16 @@ import { ProjectWizard } from "./components/ProjectWizard";
 import { SettingsView } from "./components/SettingsView";
 import { StageNav } from "./components/StageNav";
 import { StageWorkspace } from "./components/StageWorkspace";
+import { AiJobsPanel } from "./components/AiJobsPanel";
+import { GeneralSettingsView } from "./components/GeneralSettingsView";
 
 const api = () => window.thesisWorkbench;
+
+function applyFontScale(v: string): void {
+  const n = Number(v);
+  const factor = Number.isFinite(n) && n > 0 ? n / 100 : 1;
+  api()?.setUiZoom(factor);
+}
 
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -15,9 +23,16 @@ export function App() {
   const [currentStage, setCurrentStage] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"models" | "roles" | "search">("models");
+  const [settingsTab, setSettingsTab] = useState<"models" | "roles" | "search" | "general">("models");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // 启动时应用已保存的文字大小设置
+  useEffect(() => {
+    const a = api();
+    if (!a) return;
+    void a.settingsGetApp().then((s) => applyFontScale(s.fontSize)).catch(() => { /* 忽略 */ });
+  }, []);
 
   const refreshProjects = useCallback(async () => {
     const a = api();
@@ -128,22 +143,24 @@ export function App() {
           ))}
         </div>
         {error && <div className="banner banner-error">{error}</div>}
+        {detail && <AiJobsPanel projectId={detail.project.id} />}
         <div className="sidebar-bottom">
           <button className="btn btn-block" onClick={() => { setSettingsOpen(true); setSettingsTab("models"); }}>服务与模型设置</button>
+          <button className="btn btn-block" onClick={() => { setSettingsOpen(true); setSettingsTab("general"); }}>设置</button>
         </div>
       </aside>
 
       {settingsOpen ? (
         <>
           <aside className="stage-nav">
-            <div className="nav-settings-title">服务与模型设置</div>
-            {(["models", "roles", "search"] as const).map((k) => (
+            <div className="nav-settings-title">{settingsTab === "general" ? "通用设置" : "服务与模型设置"}</div>
+            {(["models", "roles", "search", "general"] as const).map((k) => (
               <button
                 key={k}
                 className={"nav-stage" + (settingsTab === k ? " active" : "")}
                 onClick={() => setSettingsTab(k)}
               >
-                <span className="nav-name">{k === "models" ? "模型服务" : k === "roles" ? "任务角色" : "搜索服务"}</span>
+                <span className="nav-name">{k === "models" ? "模型服务" : k === "roles" ? "任务角色" : k === "search" ? "搜索服务" : "通用"}</span>
               </button>
             ))}
             <div className="nav-settings-foot">
@@ -151,7 +168,9 @@ export function App() {
             </div>
           </aside>
           <main className="workspace workspace-full">
-            <SettingsView tab={settingsTab} onTabChange={setSettingsTab} />
+            {settingsTab === "general"
+              ? <GeneralSettingsView onFontSize={(v) => applyFontScale(v)} />
+              : <SettingsView tab={settingsTab} onTabChange={setSettingsTab} />}
           </main>
         </>
       ) : detail ? (

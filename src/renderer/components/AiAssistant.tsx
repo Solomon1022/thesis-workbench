@@ -12,11 +12,12 @@ export interface AiTarget {
   kind?: "text" | "variables" | "hypotheses";
 }
 
-export function AiAssistant({ detail, stageKey, targets, onFill }: {
+export function AiAssistant({ detail, stageKey, targets, onFill, notice }: {
   detail: ProjectDetail;
   stageKey: string;
   targets: AiTarget[];
   onFill: (key: string, content: string) => void;
+  notice?: string;
 }) {
   const projectId = detail.project.id;
   const [history, setHistory] = useState<Array<{ role: string; content: string }>>([]);
@@ -49,7 +50,43 @@ export function AiAssistant({ detail, stageKey, targets, onFill }: {
     setMessage("");
     setError("");
     void loadHistory();
-  }, [stageKey, loadHistory]);
+    // 后台任务恢复：切换界面后返回时，恢复上次 AI 建议（任务在主进程后台完成）
+    const a = api();
+    if (!a) return;
+    let cancelled = false;
+    const apply = (r: { ok?: boolean; message?: string; suggestions?: Array<{ key: string; label: string; content: string; note: string }>; advice?: string }) => {
+      if (r && r.ok && Array.isArray(r.suggestions)) {
+        setSuggestions(r.suggestions);
+        setAdvice(r.advice ?? "");
+        setMessage("已恢复上次 AI 建议（后台任务结果）");
+      }
+    };
+    const restore = async () => {
+      try {
+        const jobs = await a.aiJobsList(projectId);
+        const latest = jobs.find((j) => j.kind === "suggest" && j.stageKey === stageKey);
+        if (!latest) return;
+        if (latest.status === "running") {
+          setBusy(true);
+          const t = setInterval(async () => {
+            if (cancelled) { clearInterval(t); return; }
+            const js = await a.aiJobsList(projectId);
+            const j = js.find((x) => x.id === latest.id);
+            if (!j || j.status !== "running") {
+              clearInterval(t);
+              setBusy(false);
+              if (j && j.status === "done" && j.resultJson) { try { apply(JSON.parse(j.resultJson)); } catch { /* ignore */ } }
+            }
+          }, 2000);
+          return () => clearInterval(t);
+        } else if (latest.status === "done" && latest.resultJson) {
+          try { apply(JSON.parse(latest.resultJson)); } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+    };
+    void restore();
+    return () => { cancelled = true; };
+  }, [stageKey, loadHistory, projectId]);
 
   const send = async () => {
     const a = api();
@@ -106,6 +143,7 @@ export function AiAssistant({ detail, stageKey, targets, onFill }: {
       <div className="card-head-row">
         <h3 className="ai-title">AI 助手（建议不自动填入；对话有记忆，可随时重新提问）</h3>
       </div>
+      {notice && <p className="ai-notice">⚠ {notice}</p>}
 
       {targets.length > 0 && (
         <div className="ai-suggest">

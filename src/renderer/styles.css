@@ -297,3 +297,38 @@ body {
 /* 关键词结果框面积给足 */
 .kw-gen-box { min-height: 130px; }
 .kw-gen-box .kw-chips { align-content: flex-start; }
+
+/* 取消/警示按钮 */
+.btn-warn { background: #fff5f2; border-color: #f0b9ab; color: #b3402a; }
+.btn-warn:hover { background: #ffe9e2; }
+
+/* 开题报告 MD 编辑与预览 */
+.proposal-md { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; min-height: 420px; }
+.proposal-md-edit { min-height: 420px; font-family: Consolas, "Microsoft YaHei", monospace; font-size: 13px; line-height: 1.6; resize: vertical; }
+.proposal-md-preview { border: 1px solid #e4e8ef; border-radius: 8px; padding: 14px 18px; background: #fff; overflow: auto; max-height: 640px; }
+.md-body h1 { font-size: 20px; font-weight: 700; text-align: center; margin: 6px 0 12px; }
+.md-body h2 { font-size: 17px; font-weight: 700; margin: 16px 0 8px; border-bottom: 1px solid #eef1f6; padding-bottom: 4px; }
+.md-body h3 { font-size: 15px; font-weight: 600; margin: 12px 0 6px; }
+.md-body p { margin: 6px 0; line-height: 1.7; }
+.md-body ul { margin: 6px 0 6px 22px; padding: 0; }
+.md-body li { margin: 2px 0; line-height: 1.6; }
+.md-body hr { border: none; border-top: 1px solid #dde2ea; margin: 12px 0; }
+.ai-notice { background: #fff8e6; border: 1px solid #f0dc9e; border-radius: 6px; padding: 6px 10px; margin: 0 0 8px; font-size: 12.5px; color: #7a5b12; }
+
+/* 导出第 0/1/2 阶段内容 MD */
+.md-export-box { border: 1px solid #93c5fd; border-radius: 8px; padding: 10px; margin: 8px 0; background: #eff6ff; }
+.md-export-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
+.md-export-box .lit-search-row { margin-top: 4px; }
+
+/* AI 任务状态框（左列） */
+.ai-jobs-box { padding: 8px 12px 10px; border-top: 1px solid #e4e8ef; background: #fbfcfe; max-height: 210px; overflow-y: auto; }
+.ai-jobs-title { font-size: 12px; font-weight: 600; color: #2f6fed; margin-bottom: 6px; }
+.ai-job-row { margin-bottom: 7px; }
+.ai-job-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.ai-job-name { font-size: 12px; color: #2c3e50; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-job-pct { font-size: 11px; color: #2f6fed; flex-shrink: 0; }
+.ai-job-done { font-size: 11px; color: #1a9c5c; flex-shrink: 0; }
+.ai-job-failed { color: #d1483c; }
+.ai-job-track { height: 5px; border-radius: 3px; background: #e4e8ef; overflow: hidden; margin-top: 3px; }
+.ai-job-bar { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #2f6fed, #6ea2ff); transition: width 0.6s ease; }
+.ai-job-msg { font-size: 11px; margin-top: 2px; }

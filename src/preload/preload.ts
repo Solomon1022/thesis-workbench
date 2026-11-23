@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webFrame } from "electron";
 import type { ConnectionLayerResult, TaskRoleKey } from "../shared/settings";
 import type { EvidenceCard, LiteratureItem, SearchLogEntry, SearchOutcome } from "../shared/literature";
 import type { Project, ProjectDetail, ProjectInput, StageStatus } from "../shared/types";
@@ -28,7 +28,7 @@ const api = {
   literatureList: (projectId: string): Promise<LiteratureItem[]> => ipcRenderer.invoke("literature:list", projectId),
   literatureSearch: (projectId: string, source: string, query: string): Promise<{ outcome: SearchOutcome; log: SearchLogEntry }> =>
     ipcRenderer.invoke("literature:search", projectId, source, query),
-  literatureAutoSearch: (projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[]; preferredPlatforms?: string[]; openAccessOnly?: boolean; globalLibraries?: boolean }): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: SearchOutcome["items"]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string; preferredLinks?: Array<{ key: string; name: string; url: string }> }> =>
+  literatureAutoSearch: (projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[] }): Promise<{ ok: boolean; message: string; queryUsed: string[]; results: SearchOutcome["items"]; counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number }; cnNote?: string }> =>
     ipcRenderer.invoke("literature:autoSearch", projectId, opts),
   literatureUpdateMeta: (projectId: string, literatureId: string, patch: { refType?: string; region?: string }): Promise<void> =>
     ipcRenderer.invoke("literature:updateMeta", projectId, literatureId, patch),
@@ -41,8 +41,11 @@ const api = {
     ipcRenderer.invoke("react:executeSearch", projectId, plan, opts),
   reactVerifyResults: (projectId: string, outcome: unknown): Promise<{ verifyNote: string; pass: boolean }> =>
     ipcRenderer.invoke("react:verifyResults", projectId, outcome),
-  onReactSearchProgress: (cb: (msg: string) => void): void => {
-    ipcRenderer.on("react:searchProgress", (_e, msg: string) => cb(msg));
+  reactCancelSearch: (projectId: string): Promise<boolean> => ipcRenderer.invoke("react:cancelSearch", projectId),
+  onReactSearchProgress: (cb: (msg: string) => void): (() => void) => {
+    const listener = (_e: unknown, msg: string) => cb(msg);
+    ipcRenderer.on("react:searchProgress", listener);
+    return () => { ipcRenderer.removeListener("react:searchProgress", listener); };
   },
   literatureLookupDoi: (doi: string): Promise<{ found: boolean; message: string; item?: SearchOutcome["items"][number] }> =>
     ipcRenderer.invoke("literature:lookupDoi", doi),
@@ -57,8 +60,8 @@ const api = {
     ipcRenderer.invoke("literature:addEvidence", projectId, literatureId, claim, location),
   literatureDeleteEvidence: (id: string): Promise<void> => ipcRenderer.invoke("literature:deleteEvidence", id),
   literatureSearchLog: (projectId: string): Promise<SearchLogEntry[]> => ipcRenderer.invoke("literature:searchLog", projectId),
-  literatureGenQueries: (topic: string): Promise<{ ok: boolean; message: string; queries?: string[]; provider?: string; model?: string }> =>
-    ipcRenderer.invoke("literature:genQueries", topic),
+  literatureGenQueries: (projectId: string, topic: string): Promise<{ ok: boolean; message: string; queries?: string[]; provider?: string; model?: string }> =>
+    ipcRenderer.invoke("literature:genQueries", projectId, topic),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:openExternal", url),
   stage4GenerateDirections: (projectId: string, inputs: unknown) => ipcRenderer.invoke("stage4:generateDirections", projectId, inputs),
   stage4SaveDirection: (projectId: string, d: unknown) => ipcRenderer.invoke("stage4:saveDirection", projectId, d),
@@ -66,6 +69,12 @@ const api = {
   stage4DeleteDirection: (id: string) => ipcRenderer.invoke("stage4:deleteDirection", id),
   stage4GenerateDesignDraft: (projectId: string) => ipcRenderer.invoke("stage4:generateDesignDraft", projectId),
   stage4GenerateProposal: (projectId: string) => ipcRenderer.invoke("stage4:generateProposal", projectId),
+  onProposalSection: (cb: (s: { index: number; total: number; title: string }) => void): (() => void) => {
+    const listener = (_e: unknown, s: { index: number; total: number; title: string }) => cb(s);
+    ipcRenderer.on("stage4:proposalSection", listener);
+    return () => { ipcRenderer.removeListener("stage4:proposalSection", listener); };
+  },
+  stage4ExportProposalDocx: (projectId: string, md: string): Promise<{ ok: boolean; path?: string; message: string }> => ipcRenderer.invoke("stage4:exportProposalDocx", projectId, md),
   stage4SaveVersion: (projectId: string, stageKey: string, contentJson: string, note: string, name: string) => ipcRenderer.invoke("stage4:saveVersion", projectId, stageKey, contentJson, note, name),
   stage4RenameVersion: (versionId: number, name: string) => ipcRenderer.invoke("stage4:renameVersion", versionId, name),
   stage4ListVersions: (projectId: string, stageKey: string) => ipcRenderer.invoke("stage4:listVersions", projectId, stageKey),
@@ -106,6 +115,24 @@ const api = {
   aiTopicOptions: (projectId: string): Promise<{ ok: boolean; message: string; options?: Array<{ title: string; rationale: string }> }> => ipcRenderer.invoke("ai:topicOptions", projectId),
   aiSuggestTitles: (input: { education: string; disciplines: string[]; methods?: string[]; materials?: Record<string, string>; deadline?: string }): Promise<{ ok: boolean; message: string; titles?: Array<{ title: string; rationale: string; risk: string }> }> => ipcRenderer.invoke("ai:suggestTitles", input),
   aiSuggestMethods: (input: { education: string; disciplines: string[]; topic: string }): Promise<{ ok: boolean; message: string; suggestions?: Array<{ method: string; reason: string; methodKey?: string }> }> => ipcRenderer.invoke("ai:suggestMethods", input),
+  aiJobsList: (projectId: string): Promise<Array<{ id: string; projectId: string; stageKey: string; kind: string; label: string; status: string; progress: number; message: string; resultJson: string; createdAt: number; updatedAt: number }>> => ipcRenderer.invoke("aiJobs:list", projectId),
+  onAiJobUpdated: (cb: (job: { id: string; projectId: string; stageKey: string; kind: string; label: string; status: string; progress: number; message: string; resultJson: string; createdAt: number; updatedAt: number }) => void): void => {
+    ipcRenderer.on("ai:jobUpdated", (_e, job) => cb(job));
+  },
+  settingsGetApp: (): Promise<{ userDataDir: string; attachmentsDir: string; exportDir: string; uiLanguage: string; fontSize: string; proposalTemplate: string; docMarginTop: string; docMarginBottom: string; docMarginLeft: string; docMarginRight: string; docBodySize: string; docTitleSize: string; docBodyCn: string; docBodyEn: string; docLineSpacing: string }> => ipcRenderer.invoke("settings:getApp"),
+  settingsSaveApp: (patch: Record<string, string>): Promise<boolean> => ipcRenderer.invoke("settings:saveApp", patch),
+  settingsChooseDir: (): Promise<string | null> => ipcRenderer.invoke("settings:chooseDir"),
+  /** 页面级缩放（Electron 原生，正常重排无留白；0.5–1.5） */
+  setUiZoom: (factor: number): void => {
+    webFrame.setZoomFactor(Math.max(0.5, Math.min(1.5, factor)));
+  },
+  literatureExportMd: (projectId: string, prefs?: { refTypes?: string[]; platforms?: string[] }): Promise<{ ok: boolean; md: string; path: string; message: string }> => ipcRenderer.invoke("literature:exportMd", projectId, prefs),
+  literatureImportAiText: (projectId: string, text: string): Promise<{ ok: boolean; message: string; verified: number; unverified: number; skipped: number; failed: number }> => ipcRenderer.invoke("literature:importAiText", projectId, text),
+  onBridgeImported: (cb: (payload: { projectId: string; summary: { verified: number; unverified: number; skipped: number; failed: number } }) => void): (() => void) => {
+    const listener = (_e: unknown, payload: { projectId: string; summary: { verified: number; unverified: number; skipped: number; failed: number } }) => cb(payload);
+    ipcRenderer.on("ai:bridgeImported", listener);
+    return () => { ipcRenderer.removeListener("ai:bridgeImported", listener); };
+  },
 };
 
 contextBridge.exposeInMainWorld("thesisWorkbench", api);

@@ -24,8 +24,9 @@ function startMockModel(): { server: Server; base: string } {
         user = parsed.messages?.find((m) => m.role === "user")?.content ?? "";
       } catch { /* ignore */ }
       let out: unknown = { message: "unknown" };
-      if (system.startsWith("你是开题报告助手")) {
-        out = { sections: [{ title: "研究背景与问题", content: "AI 虚拟主播直播日益普及（AI 草稿，待核验）。" }, { title: "研究方法", content: "问卷定量研究，量表来源待核验。" }] };
+      if (system.includes("开题报告写作助手")) {
+        // 新版：按模板逐节生成，每节返回纯文本（MD 段落）
+        out = "本节为 AI 草稿：基于主研究方向展开，引用仅来自文献库，不确定内容待核验。";
       } else if (system.startsWith("你是论文写作助手，与研究者就该阶段内容实时对话")) {
         out = { reply: "" };
       } else if (system.startsWith("你是论文写作助手。针对给定字段生成建议内容草稿。")) {
@@ -182,11 +183,12 @@ test("阶段 4：全局 AI 助手（建议+对话）→ 变量 → 假设 → �
     await expect(page.getByText("版本已保存")).toBeVisible();
     await expect(page.getByText(/v1/).first()).toBeVisible();
 
-    // 开题框架
+    // 开题框架（MD 分节生成：左侧编辑、右侧预览）
     await page.getByRole("button", { name: /开题报告/ }).click();
     await page.getByRole("button", { name: "开始此阶段" }).click();
     await page.getByRole("button", { name: "生成开题框架" }).click();
-    await expect(page.getByLabel("章节标题1")).toHaveValue("研究背景与问题");
+    await expect(page.getByLabel("开题报告 Markdown 编辑器")).toHaveValue(/本科毕业论文（设计）开题报告/, { timeout: 30_000 });
+    await expect(page.getByLabel("开题报告 Markdown 编辑器")).toHaveValue(/本节为 AI 草稿/);
     await page.getByLabel("版本备注").fill("框架初稿");
     await page.getByRole("button", { name: "保存版本" }).click();
     await expect(page.getByText(/v1/).first()).toBeVisible();

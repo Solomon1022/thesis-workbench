@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { dialog } from "electron";
 import type { ThesisDB } from "./db";
@@ -8,13 +8,17 @@ import { crossrefByDoi, crossrefSearch } from "./adapters/crossref";
 import { openalexSearch } from "./adapters/openalex";
 import { arxivSearch } from "./adapters/arxiv";
 import { pubmedSearch } from "./adapters/pubmed";
+import { hanspubSearch } from "./adapters/hanspub";
+import { cnkiSearch } from "./adapters/cnki";
 import { normalizeDoi, normalizeTitle } from "../shared/bibparse";
-import { ACADEMIC_SYNONYMS, CN_EN_TERM_DICT, CN_SEARCH_PLATFORMS, CORE_CN_JOURNALS, MAJOR_PLATFORM_GROUPS, SEED_LIBRARY } from "../shared/literature";
+import { parseAiLiterature } from "./ai-import";
+import { ACADEMIC_SYNONYMS, CN_EN_TERM_DICT, CN_SEARCH_PLATFORMS, CORE_CN_JOURNALS, FOREIGN_PLATFORMS, SEED_LIBRARY } from "../shared/literature";
+import { setJournalRankLists } from "../shared/journal-rank";
 import { buildForeignQuery, type ForeignQueryResolver } from "./query-builder";
 import { classifyTerms, compositeScore, hardFilterPass, ngramSimilarity, planLevels, SIMILARITY_THRESHOLD_EN } from "./query-planner";
 import type { EvidenceCard, LiteratureItem, LiteratureSource, SearchLogEntry, SearchOutcome } from "../shared/literature";
 
-export type LiteratureInput = Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt" | "refType" | "region" | "language"> & Partial<Pick<LiteratureItem, "refType" | "region" | "language">>;
+export type LiteratureInput = Omit<LiteratureItem, "id" | "projectId" | "verifiedStatus" | "verifiedNote" | "fulltextStatus" | "pdfName" | "createdAt" | "updatedAt" | "refType" | "region" | "language"> & Partial<Pick<LiteratureItem, "refType" | "region" | "language" | "citedBy" | "keywords" | "journalRank">>;
 
 export interface SaveOutcome {
   saved: boolean;
@@ -23,7 +27,7 @@ export interface SaveOutcome {
   existing?: LiteratureItem;
 }
 
-const REAL_SOURCES: LiteratureSource[] = ["crossref", "openalex", "arxiv", "pubmed"];
+const REAL_SOURCES: LiteratureSource[] = ["crossref", "openalex", "arxiv", "pubmed", "hanspub", "cnki"];
 
 /** 词典词表（同义词键值 + 中英词典键 + 种子术语），按长度降序供最长匹配 */
 const DICT_TERMS: string[] = (() => {
@@ -85,7 +89,16 @@ export class LiteratureService {
     private db: ThesisDB,
     private settings: SettingsService,
     private userDataDir: string,
-  ) {}
+  ) {
+    // 期刊等级清单可后期更新：用户数据目录放 journal-rank.json（{ csci:[], pku:[], sciSsi:[] }）与内置清单合并
+    try {
+      const file = path.join(userDataDir, "journal-rank.json");
+      if (existsSync(file)) {
+        const extra = JSON.parse(readFileSync(file, "utf8")) as Partial<{ csci: string[]; pku: string[]; sciSsi: string[] }>;
+        setJournalRankLists({ csci: extra.csci ?? [], pku: extra.pku ?? [], sciSsi: extra.sciSsi ?? [] });
+      }
+    } catch { /* 清单文件损坏时用内置清单 */ }
+  }
 
   private signalWithTimeout(): AbortSignal {
     return AbortSignal.timeout(30_000);
@@ -98,6 +111,43 @@ export class LiteratureService {
       if (source === "crossref") outcome = await crossrefSearch(q, this.settings.getContactEmail(), this.signalWithTimeout());
       else if (source === "arxiv") outcome = await arxivSearch(q, this.signalWithTimeout());
       else if (source === "pubmed") outcome = await pubmedSearch(q, this.signalWithTimeout());
+      else if (source === "hanspub") outcome = await hanspubSearch(q, this.signalWithTimeout(), 20);
+      else if (source === "cnki") {
+        // 知网题录直抓（校园网/VPN 环境；失败如实报错并提示官网检索，不绕过验证码）
+        try {
+          outcome = await cnkiSearch(q, AbortSignal.timeout(15_000), 20);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          outcome = {
+            source: "cnki",
+            query: q,
+            searchedAt: Date.now(),
+            status: "no_results",
+            message: "知网题录直抓未成功（" + reason + "）：请在校园网/VPN 环境重试，或点击官网检索后手动导入本库。官网检索：https://kns.cnki.net/kns8s/defaultresult/index?kw=" + encodeURIComponent(q),
+            items: [],
+          };
+        }
+      }
+      else if (source === "wanfang") {
+        outcome = {
+          source: "wanfang",
+          query: q,
+          searchedAt: Date.now(),
+          status: "no_results",
+          message: "万方为闭源订阅库，检索结果由页面脚本异步加载，程序内无法直接取回题录；请点击官网检索后手动导入本库。官网检索：https://s.wanfangdata.com.cn/paper?q=" + encodeURIComponent(q),
+          items: [],
+        };
+      }
+      else if (source === "vip") {
+        outcome = {
+          source: "vip",
+          query: q,
+          searchedAt: Date.now(),
+          status: "no_results",
+          message: "维普为闭源订阅库，官网有反爬验证（JS 挑战），程序内无法直接取回题录；请点击官网检索后手动导入本库。官网检索：http://qikan.cqvip.com/Qikan/Search/Index?key=" + encodeURIComponent(q),
+          items: [],
+        };
+      }
       else throw new Error("未知检索来源：" + source);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -121,21 +171,22 @@ export class LiteratureService {
   }
 
   /** 一键自动找文献（双池彻底拆分 + 必选词约束 + 扩容熔断 + 两层过滤 + 多维评分）：
-   *  中文池：不再用外文平台当主检索源；生成带必选词约束的检索式 → 中文平台（百度学术/知网/万方/维普/NSSD）跳转检索，
-   *           中文文献由用户在中文平台检索后导入本库（合规：不爬取中文闭源平台）。
-   *  外文池：OpenAlex + Crossref 真实检索，L0-L2 分级扩容、L3 理论补充（不计核心配额）；
-   *           结果过两道过滤闸（规则硬过滤 + 字符 n-gram 初筛，非语义判定），再按多维权重排序。
+   *  中文池：知网题录直抓（校园网/VPN，失败自动降级为跳转）+ 知网/万方/维普/百度学术/NSSD 跳转检索式
+   *           + 汉斯出版社（10.12677）/OpenAlex 中文子集真实取回；权威中文文献可在中文平台检索后导入本库。
+   *  外文池：OpenAlex + Crossref + 汉斯出版社（英文检索式）真实检索，L0-L2 分级扩容、L3 理论补充（不计核心配额）；
+   *           汉斯出版社/Google Scholar/BASE 附英文检索式跳转链接（不直接用中文）。
+   *  结果过两道过滤闸（规则硬过滤 + 字符 n-gram 初筛，非语义判定），再按多维权重排序。
    *  真实不足如实报告缺口，绝不编造、绝不硬塞。 */
-  async autoSearch(projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[]; excludeTitles?: string[]; preferredPlatforms?: string[]; openAccessOnly?: boolean; globalLibraries?: boolean; englishKeywords?: string }): Promise<{
+  async autoSearch(projectId: string, opts?: { total?: number; cn?: number; en?: number; excludeDois?: string[]; excludeTitles?: string[]; englishKeywords?: string }): Promise<{
     ok: boolean;
     message: string;
     queryUsed: string[];
     results: SearchOutcome["items"];
     counts?: { cnRequested: number; enRequested: number; cnFound: number; enFound: number };
     cnNote?: string;
-    preferredLinks?: Array<{ key: string; name: string; url: string }>;
     backgroundLinks?: Array<{ name: string; url: string }>;
     cnJumpLinks?: Array<{ name: string; url: string; query: string }>;
+    foreignLinks?: Array<{ key: string; name: string; url: string; query: string }>;
   }> {
     const total = Math.min(30, Math.max(15, Math.trunc(opts?.total ?? 15)));
     const cnRequested = Math.min(total, Math.max(0, Math.trunc(opts?.cn ?? 0)));
@@ -190,6 +241,8 @@ export class LiteratureService {
 
     // 外文池：L0-L2 核心 + L3 理论补充（熔断，禁止继续放宽）
     const used: string[] = [];
+    const usedEn: string[] = [];
+    const usedCn: string[] = [];
     const seenKeys = new Set<string>();
     const seenTitles = new Set<string>();
     const rawPool: Array<SearchOutcome["items"][number] & { level: string; citedBy?: number; isOa?: boolean; queryText?: string }> = [];
@@ -205,10 +258,12 @@ export class LiteratureService {
 
     const fetchEn = async (query: string, level: string) => {
       used.push(query);
+      usedEn.push(query);
       try {
-        const [oa, cr] = await Promise.allSettled([
+        const [oa, cr, hs] = await Promise.allSettled([
           openalexSearch(query.replace(/\s+AND\s+/gi, " "), { language: "en", rows: 20, signal: this.signalWithTimeout() }),
           crossrefSearch(query, this.settings.getContactEmail(), this.signalWithTimeout(), { rows: 20 }),
+          hanspubSearch(query.replace(/\s+(AND|OR|NOT)\s+/gi, " "), this.signalWithTimeout(), 20),
         ]);
         if (oa.status === "fulfilled" && oa.value.status !== "error") {
           for (const item of oa.value.items) {
@@ -219,12 +274,18 @@ export class LiteratureService {
         if (cr.status === "fulfilled" && cr.value.status !== "error") {
           for (const item of cr.value.items) pushUnique(item, level, Number((item as { citedBy?: number }).citedBy ?? 0), query);
         }
+        if (hs.status === "fulfilled" && hs.value.status !== "error") {
+          for (const item of hs.value.items) pushUnique(item, level, Number((item as { citedBy?: number }).citedBy ?? 0), query);
+        }
         if (oa.status === "rejected") this.db.appendSearchLog(projectId, "openalex", query, 0, "error", String(oa.reason instanceof Error ? oa.reason.message : oa.reason));
         else if (oa.value.status === "error") this.db.appendSearchLog(projectId, "openalex", query, 0, "error", oa.value.message);
         else this.db.appendSearchLog(projectId, "openalex", query, oa.value.items.length, oa.value.status, "外文池真实检索");
         if (cr.status === "rejected") this.db.appendSearchLog(projectId, "crossref", query, 0, "error", String(cr.reason instanceof Error ? cr.reason.message : cr.reason));
         else if (cr.value.status === "error") this.db.appendSearchLog(projectId, "crossref", query, 0, "error", cr.value.message);
         else this.db.appendSearchLog(projectId, "crossref", query, cr.value.items.length, cr.value.status, "外文池真实检索");
+        if (hs.status === "rejected") this.db.appendSearchLog(projectId, "hanspub", query, 0, "error", String(hs.reason instanceof Error ? hs.reason.message : hs.reason));
+        else if (hs.value.status === "error") this.db.appendSearchLog(projectId, "hanspub", query, 0, "error", hs.value.message);
+        else this.db.appendSearchLog(projectId, "hanspub", query, hs.value.items.length, hs.value.status, "外文池汉斯出版社真实检索（10.12677）");
       } catch (error) {
         this.db.appendSearchLog(projectId, "crossref+openalex", query, 0, "error", error instanceof Error ? error.message : String(error));
       }
@@ -270,21 +331,46 @@ export class LiteratureService {
       if (!cnQueryList.some((x) => x.q === q)) cnQueryList.push({ q, level: "L2" });
     }
     const cnRaw: Array<SearchOutcome["items"][number] & { level: string; citedBy?: number }> = [];
+    let cnkiOk = false;
+    let cnkiDegraded = false;
+    const cnPush = (item: SearchOutcome["items"][number], level: string) => {
+      const typed = item as SearchOutcome["items"][number] & { citedBy?: number };
+      const key = item.doi || (item.title + "|" + item.authors);
+      const normTitle = normalizeTitle(item.title);
+      if (!key || seenKeys.has(key) || (normTitle && seenTitles.has(normTitle)) || exclude.has(item.doi)) return;
+      seenKeys.add(key);
+      if (normTitle) seenTitles.add(normTitle);
+      cnRaw.push({ ...item, level, citedBy: Number(typed.citedBy ?? 0) });
+    };
     if (cnRequested > 0) {
       for (const cq of cnQueryList) {
         used.push(cq.q);
+        usedCn.push(cq.q);
         const oaQ = cq.q.replace(/\s*AND\s*/g, " ").replace(/\s*OR\s*/g, " ");
+        // 知网题录直抓（校园网/VPN；失败自动降级为跳转链接，不绕验证码）
+        if (!cnkiDegraded) {
+          try {
+            const ck = await cnkiSearch(cq.q, AbortSignal.timeout(15_000), 20);
+            cnkiOk = true;
+            for (const item of ck.items) cnPush(item, cq.level);
+            this.db.appendSearchLog(projectId, "cnki", cq.q, ck.items.length, ck.status, "中文池知网题录直抓");
+          } catch (error) {
+            cnkiDegraded = true;
+            this.db.appendSearchLog(projectId, "cnki", cq.q, 0, "error", error instanceof Error ? error.message : String(error));
+          }
+        }
+        // 汉斯出版社中文真实取回（OA，10.12677）
+        try {
+          const hsCn = await hanspubSearch(cq.q, this.signalWithTimeout(), 20);
+          for (const item of hsCn.items) cnPush(item, cq.level);
+          this.db.appendSearchLog(projectId, "hanspub-cn", cq.q, hsCn.items.length, hsCn.status, "中文池汉斯出版社真实检索（10.12677，OA）");
+        } catch (error) {
+          this.db.appendSearchLog(projectId, "hanspub-cn", cq.q, 0, "error", error instanceof Error ? error.message : String(error));
+        }
+        // OpenAlex 中文子集（补充发现）
         try {
           const outcome = await openalexSearch(oaQ, { language: "zh", rows: 30, signal: this.signalWithTimeout() });
-          for (const item of outcome.items) {
-            const typed = item as SearchOutcome["items"][number] & { citedBy?: number };
-            const key = item.doi || (item.title + "|" + item.authors);
-            const normTitle = normalizeTitle(item.title);
-            if (!key || seenKeys.has(key) || (normTitle && seenTitles.has(normTitle)) || exclude.has(item.doi)) continue;
-            seenKeys.add(key);
-            if (normTitle) seenTitles.add(normTitle);
-            cnRaw.push({ ...item, level: cq.level, citedBy: Number(typed.citedBy ?? 0) });
-          }
+          for (const item of outcome.items) cnPush(item, cq.level);
           this.db.appendSearchLog(projectId, "openalex-zh", cq.q, outcome.items.length, outcome.status, "中文池自动检索（补充发现）");
         } catch (error) {
           this.db.appendSearchLog(projectId, "openalex-zh", cq.q, 0, "error", error instanceof Error ? error.message : String(error));
@@ -304,16 +390,12 @@ export class LiteratureService {
       filtered.push(item);
     }
 
-    // P2 多维评分排序（相关度 60% + 质量 30% + 引用 10%）
-    const preferOpen = Boolean(opts?.openAccessOnly);
+    // P2 多维评分排序（相关度 60% + 质量 30% + 引用 10%；不设偏好权重池）
     filtered.sort((a, b) => {
       const scoreOf = (item: typeof rawPool[number]) => {
         const sim = (item as typeof item & { similarity: number }).similarity ?? 0;
         const isCore = CORE_CN_JOURNALS.some((j) => (item.venue ?? "").includes(j));
-        let s = compositeScore({ similarity: sim, subjectHitInTitle: true, resultHitInTitle: true, isCoreJournal: isCore, citedBy: item.citedBy });
-        if (preferOpen && item.isOa === true) s += 6;
-        if (preferOpen && item.isOa === false) s -= 6;
-        return s;
+        return compositeScore({ similarity: sim, subjectHitInTitle: true, resultHitInTitle: true, isCoreJournal: isCore, citedBy: item.citedBy });
       };
       return scoreOf(b) - scoreOf(a);
     });
@@ -350,21 +432,7 @@ export class LiteratureService {
     });
 
     const counts = { cnRequested, enRequested, cnFound, enFound };
-    const cnNote = "中文自动检索为 OpenAlex 中文子集「补充发现」（已过必选词硬过滤与字符相似度初筛，缺 " + Math.max(0, cnRequested - cnFound) + " 篇未硬凑）；语言为「中文」不等于国内文献，国内外归属需人工确认作者单位与出版地。权威中文库（知网/万方/维普/NSSD）请用下方跳转检索后导入本库，导入后计入中文配额";
-
-    // 偏好平台跳转（偏向，非绝对）
-    const preferredLinks: Array<{ key: string; name: string; url: string }> = [];
-    const globalGroup = MAJOR_PLATFORM_GROUPS.find((g) => g.title.includes("全球综合权威平台"));
-    for (const group of MAJOR_PLATFORM_GROUPS) {
-      for (const p of group.items) {
-        const inGlobal = Boolean(opts?.globalLibraries && globalGroup?.items.some((i) => i.key === p.key));
-        const selected = (opts?.preferredPlatforms ?? []).includes(p.key);
-        if (!selected && !inGlobal) continue;
-        if (opts?.openAccessOnly && !inGlobal && !/免费|OA|开放/.test(p.tag)) continue;
-        if (!p.searchTemplate) continue;
-        preferredLinks.push({ key: p.key, name: p.name, url: p.searchTemplate.replace("%s", encodeURIComponent(used[0] ?? "")) });
-      }
-    }
+    const cnNote = (cnkiOk ? "知网题录直抓成功（校园网/VPN 环境），已取回被引次数与核心期刊标记" : "知网题录直抓未成功（外网/风控/页面改版，未绕过验证码），已自动降级为跳转链接：请点击下方知网链接在官网检索后，通过「国内平台人工核验」导入本库") + "；中文真实取回为知网 + 汉斯出版社（OA，10.12677）+ OpenAlex 中文子集「补充发现」（已过必选词硬过滤与字符相似度初筛，缺 " + Math.max(0, cnRequested - cnFound) + " 篇未硬凑）；语言为「中文」不等于国内文献，国内外归属需人工确认作者单位与出版地。境外数据源（汉斯出版社、Google Scholar、BASE）统一使用英文检索式（不直接用中文）";
 
     // 3/4 级背景引用跳转（不计入配额）
     const bgQ = encodeURIComponent(cnKeywords.slice(0, 2).join(" ") || direction.slice(0, 30));
@@ -375,11 +443,12 @@ export class LiteratureService {
 
     const filterNote = hardDropped + simDropped + cnHardDropped + cnSimDropped > 0 ? "；已过两道过滤闸：规则剔除 " + (hardDropped + cnHardDropped) + " 篇、字符 n-gram 初筛剔除 " + (simDropped + cnSimDropped) + " 篇（非语义判定）" : "";
     const levelNote = theoryPool.length > 0 ? "；L3 理论补充文献不计入核心配额（已标注）" : "";
-    const parts: string[] = ["双池检索完成：中文 " + cnFound + "/" + cnRequested + "（OpenAlex 中文子集补充发现）、外文 " + enFound + "/" + enRequested + levelNote + filterNote];
+    const parts: string[] = ["双池检索完成：中文 " + cnFound + "/" + cnRequested + "（知网直抓" + (cnkiOk ? "成功" : "降级跳转") + " + 汉斯出版社/OpenAlex 中文子集真实取回）、外文 " + enFound + "/" + enRequested + levelNote + filterNote];
+    const foreignLinks: Array<{ key: string; name: string; url: string; query: string }> = usedEn[0] ? FOREIGN_PLATFORMS.map((f) => ({ key: f.key, name: f.name, url: f.searchTemplate ? f.searchTemplate.replace("%s", encodeURIComponent(usedEn[0])) : "", query: usedEn[0] })) : [];
     if (results.length === 0) {
-      return { ok: false, message: parts.join("，") + "（真实检索 0 条）", queryUsed: used, results, counts, cnNote, preferredLinks, backgroundLinks, cnJumpLinks };
+      return { ok: false, message: parts.join("，") + "（真实检索 0 条）", queryUsed: used, results, counts, cnNote, backgroundLinks, cnJumpLinks, foreignLinks };
     }
-    return { ok: true, message: parts.join("，"), queryUsed: used, results, counts, cnNote, preferredLinks, backgroundLinks, cnJumpLinks };
+    return { ok: true, message: parts.join("，"), queryUsed: used, results, counts, cnNote, backgroundLinks, cnJumpLinks, foreignLinks };
   }
   /** 更新文献形式与国内外区分（初判可被用户修正）。 */
   updateMeta(projectId: string, literatureId: string, patch: { refType?: string; region?: string }): void {
@@ -425,7 +494,122 @@ export class LiteratureService {
     return { ok: true, message: "AI 检索完成：找到 " + outcome.items.length + " 条候选题录（真实 Crossref，可核验）", queryUsed: query, results: outcome.items };
   }
 
-  /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */  /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */  /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */
+  /** 未核验命中/核验失败时：保留用户题录按「待核验」入库（零丢失，绝不编造） */
+  private saveAsUnverified(projectId: string, c: { title: string; authors: string; year: string; venue: string; doi: string; refType: string }, note: string): SaveOutcome {
+    return this.saveItem(projectId, {
+      title: c.title,
+      authors: c.authors,
+      year: c.year,
+      venue: c.venue,
+      doi: c.doi,
+      url: "",
+      abstract: "",
+      source: "ai-suggested",
+      preprint: false,
+      refType: c.refType as "journal" | "thesis" | "conference" | "other",
+      region: "unknown",
+      language: "",
+      citedBy: 0,
+      keywords: "",
+      journalRank: "",
+    }, { note });
+  }
+
+  /** 直聊 AI 结果回填：解析文本 → 逐条真实源核验 → 去重入库；核验未命中的标「待核验」并如实说明 */
+  async importAiText(
+    projectId: string,
+    text: string,
+    onProgress?: (percent: number, msg: string) => void,
+  ): Promise<{ ok: boolean; message: string; verified: number; unverified: number; skipped: number; failed: number }> {
+    const candidates = parseAiLiterature(text);
+    if (candidates.length === 0) {
+      return { ok: false, message: "未能从文本中解析出文献条目：请粘贴 AI 返回的文献列表（含标题/作者/年份，最好带 DOI 或 GB/T 7714 格式）", verified: 0, unverified: 0, skipped: 0, failed: 0 };
+    }
+    // 礼貌限流：Crossref 无邮箱时用默认邮箱（否则极易 429）；每条间隔 250ms；429 重试一次
+    const mailto = this.settings.getContactEmail() || "thesis.workbench.user@example.com";
+    const gap = () => new Promise((res) => setTimeout(res, 250));
+    let verified = 0;
+    let unverified = 0;
+    let skipped = 0;
+    let failed = 0;
+    const total = candidates.length;
+    for (let i = 0; i < total; i++) {
+      const c = candidates[i];
+      onProgress?.(Math.round((i / total) * 100), "正在核验第 " + (i + 1) + "/" + total + " 条：" + c.title.slice(0, 40));
+      try {
+        let real: SearchOutcome["items"][number] | null = null;
+        const retry429 = async <T>(fn: () => Promise<T>): Promise<T> => {
+          try { return await fn(); } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (!/429/.test(msg)) throw e;
+            await new Promise((res) => setTimeout(res, 1500)); // 限流退避后重试一次
+            return await fn();
+          }
+        };
+        if (c.doi) {
+          const r = await retry429(() => crossrefByDoi(c.doi, AbortSignal.timeout(12_000)));
+          if (r && r.title) real = r;
+        }
+        if (!real) {
+          const query = c.title.slice(0, 180);
+          const outcome = await retry429(() => crossrefSearch(query, mailto, AbortSignal.timeout(12_000), { rows: 3 }));
+          const items = outcome.items;
+          const target = normalizeTitle(c.title);
+          real = items.find((it) => normalizeTitle(it.title) === target) ?? null;
+          if (!real && items.length > 0 && target.length >= 12) {
+            real = items.find((it) => {
+              const nt = normalizeTitle(it.title);
+              return nt.includes(target) || target.includes(nt);
+            }) ?? null;
+          }
+        }
+        await gap();
+        if (real) {
+          const saved = this.saveItem(projectId, {
+            title: real.title,
+            authors: real.authors,
+            year: real.year,
+            venue: real.venue,
+            doi: real.doi,
+            url: real.url,
+            abstract: real.abstract,
+            source: real.source,
+            preprint: !!real.preprint,
+            refType: c.refType === "other" ? "other" : real.refType ?? "other",
+            region: "unknown",
+            language: real.language ?? "",
+            citedBy: real.citedBy ?? 0,
+            keywords: real.keywords ?? "",
+            journalRank: real.journalRank ?? "",
+          }, { note: "AI 回填 · 真实源核验" });
+          if (saved.saved) verified++;
+          else skipped++;
+        } else {
+          // 未在真实源命中：保留用户提供的题录按「待核验」入库（零丢失，绝不编造）
+          const saved = this.saveAsUnverified(projectId, c, "来自直聊 AI 输出，未在真实数据源命中，请人工核验");
+          if (saved.saved) unverified++;
+          else skipped++;
+        }
+      } catch (e) {
+        // 核验请求失败（限流/网络）：同样按「待核验」入库，不丢条目；稍后可人工核验
+        const reason = e instanceof Error ? e.message.slice(0, 60) : String(e);
+        const saved = this.saveAsUnverified(projectId, c, "核验请求失败（" + reason + "），暂标待核验，请稍后人工核验");
+        if (saved.saved) unverified++;
+        else skipped++;
+      }
+    }
+    onProgress?.(100, "回填核验完成");
+    const parts = [
+      "AI 结果回填完成：共解析 " + total + " 条",
+      verified > 0 ? "已核验入库 " + verified + " 条" : null,
+      unverified > 0 ? "未在真实源命中、待人工核验 " + unverified + " 条" : null,
+      skipped > 0 ? "与库内重复跳过 " + skipped + " 条" : null,
+      failed > 0 ? "核验失败跳过 " + failed + " 条" : null,
+    ].filter(Boolean);
+    return { ok: true, message: parts.join("；"), verified, unverified, skipped, failed };
+  }
+
+  /** 保存文献：DOI 与归一化标题去重；真实来源自动标「已核验」，其余默认「待核验」。 */
   saveItem(projectId: string, input: LiteratureInput, opts: { note?: string; manuallyVerified?: boolean }): SaveOutcome {
     const doi = normalizeDoi(input.doi ?? "");
     if (doi) {
@@ -462,6 +646,9 @@ export class LiteratureService {
       refType: input.refType ?? "other",
       region: input.region ?? "unknown",
       language: input.language ?? "",
+      citedBy: input.citedBy ?? 0,
+      keywords: input.keywords ?? "",
+      journalRank: input.journalRank ?? "",
     });
     return { saved: true, item: saved, message: "已保存" };
   }
@@ -482,7 +669,8 @@ export class LiteratureService {
     });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
     const src = result.filePaths[0];
-    const dir = path.join(this.userDataDir, "attachments", projectId);
+    const base = this.db.getAppSetting("attachments_dir") || path.join(this.userDataDir, "attachments");
+    const dir = path.join(base, projectId);
     mkdirSync(dir, { recursive: true });
     const dest = path.join(dir, literatureId + ".pdf");
     copyFileSync(src, dest);

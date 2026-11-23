@@ -1,6 +1,7 @@
 import { fetch } from "undici";
 import { guessRegion, refTypeFromCrossrefType, type RefTypeKey, type RegionKey } from "../../shared/literature";
 import type { SearchOutcome } from "../../shared/literature";
+import { rankJournal } from "../../shared/journal-rank";
 
 const REAL_BASE = "https://api.openalex.org";
 
@@ -36,6 +37,7 @@ function workToItem(w: Record<string, unknown>) {
   const type = String(w.type ?? "");
   const language = String(w.language ?? "");
   const citedBy = Number(w.cited_by_count ?? 0);
+  const keywords = (Array.isArray(w.keywords) ? w.keywords : []).map((k) => String((k as Record<string, unknown>).display_name ?? "")).filter(Boolean).slice(0, 6).join("; ");
   return {
     title,
     authors,
@@ -50,6 +52,8 @@ function workToItem(w: Record<string, unknown>) {
     region: "unknown" as RegionKey,
     language,
     citedBy,
+    keywords,
+    journalRank: rankJournal(venue),
     isOa: Boolean((w.open_access as Record<string, unknown> | undefined)?.is_oa),
   };
 }

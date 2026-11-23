@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProjectDetail } from "../../shared/types";
 import type { LiteratureItem } from "../../shared/literature";
+import { mdit } from "./mdlite";
 
 const api = () => window.thesisWorkbench;
 
@@ -355,14 +356,24 @@ export function DesignAssist({ detail, values, onDraft, onRestoreFields }: {
   );
 }
 
-/* ============ 开题报告框架（开题报告阶段） ============ */
+/* ============ 开题报告框架（开题报告阶段：MD 分节流式生成、实时预览、可编辑、导出 Word） ============ */
 
 export function ProposalPanel({ detail }: { detail: ProjectDetail }) {
   const projectId = detail.project.id;
-  const [sections, setSections] = useState<Array<{ title: string; content: string }>>([]);
+  const [md, setMd] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState("");
+
+  useEffect(() => {
+    const a = api();
+    if (!a) return;
+    const off = a.onProposalSection((s) => {
+      setProgress("正在生成第 " + (s.index + 1) + "/" + s.total + " 节：" + s.title);
+    });
+    return () => off();
+  }, []);
 
   const generate = async () => {
     const a = api();
@@ -370,10 +381,11 @@ export function ProposalPanel({ detail }: { detail: ProjectDetail }) {
     setBusy(true);
     setError("");
     setMessage("");
+    setProgress("");
     try {
       const r = await a.stage4GenerateProposal(projectId);
-      if (r.ok && r.sections) {
-        setSections(r.sections);
+      if (r.ok && r.md) {
+        setMd(r.md);
         setMessage(r.message + (r.provider ? "（" + r.provider + " / " + r.model + "）" : ""));
       } else {
         setError(r.message);
@@ -382,42 +394,58 @@ export function ProposalPanel({ detail }: { detail: ProjectDetail }) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      setProgress("");
     }
   };
 
-  const updateSection = (i: number, patch: Partial<{ title: string; content: string }>) => {
-    setSections((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+  const exportWord = async () => {
+    const a = api();
+    if (!a || !md.trim()) return;
+    try {
+      const r = await a.stage4ExportProposalDocx(projectId, md);
+      if (r.ok) setMessage(r.message);
+      else setError(r.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (
     <section className="card">
       <div className="card-head-row">
-        <h2 className="card-title">开题报告框架（AI 草稿，可编辑）</h2>
-        <button className="btn btn-primary" disabled={busy} onClick={() => void generate()}>生成开题框架</button>
+        <h2 className="card-title">开题报告框架（AI 草稿 · MD 实时生成，可编辑）</h2>
+        <span>
+          <button className="btn btn-primary" disabled={busy} onClick={() => void generate()}>{busy ? "生成中…" : "生成开题框架"}</button>{" "}
+          <button className="btn" disabled={!md.trim()} onClick={() => void exportWord()}>导出 Word（按模板样式）</button>
+        </span>
       </div>
-      <p className="muted">基于研究设计内容、已保存候选方向与文献库生成章节框架；引用只来自文献库，不确定内容标注「待核验」。请逐节复核与编辑。</p>
+      <p className="muted">严格按学校《开题报告》表格架构生成：AI 只写「研究目的、意义（价值）及相关领域研究现状」「拟研究的主要问题、新颖性及拟采用的研究方法」两大块（按主研究方向，不包含候选研究方向）；主要参考文献与整体进度安排由程序按文献库与项目截止时间自动生成（真实、不编造）。生成过程逐节实时显示，左侧编辑 MD、右侧实时预览；正式提交用「导出 Word」按设置里的页面/字体/行距排版。</p>
+      {busy && progress && <p className="muted search-progress">生成进度：{progress}</p>}
       {message && <p className="banner banner-info">{message}</p>}
       {error && <p className="banner banner-error">{error}</p>}
 
-      {sections.length > 0 && (
-        <div className="proposal-sections">
-          {sections.map((s, i) => (
-            <div key={i} className="field">
-              <input className="input" aria-label={"章节标题" + (i + 1)} value={s.title} onChange={(e) => updateSection(i, { title: e.target.value })} />
-              <textarea className="textarea" aria-label={"章节内容" + (i + 1)} value={s.content} onChange={(e) => updateSection(i, { content: e.target.value })} />
-            </div>
-          ))}
+      {md.trim() ? (
+        <div className="proposal-md">
+          <textarea className="textarea proposal-md-edit" aria-label="开题报告 Markdown 编辑器" value={md} onChange={(e) => setMd(e.target.value)} spellCheck={false} />
+          <div className="proposal-md-preview md-body" dangerouslySetInnerHTML={{ __html: mdit(md) }} />
         </div>
+      ) : (
+        <p className="empty-hint">尚未生成。点击「生成开题框架」，AI 会逐节生成并实时显示。</p>
       )}
 
       <VersionSection
         projectId={projectId}
         stageKey="proposal"
-        buildContent={() => JSON.stringify({ sections })}
+        buildContent={() => JSON.stringify({ md })}
         onRestore={(contentJson, warning) => {
           try {
-            const parsed = JSON.parse(contentJson) as { sections?: Array<{ title: string; content: string }> };
-            if (parsed.sections) setSections(parsed.sections);
+            const parsed = JSON.parse(contentJson) as { md?: string; sections?: Array<{ title: string; content: string }> };
+            if (typeof parsed.md === "string") {
+              setMd(parsed.md);
+            } else if (Array.isArray(parsed.sections)) {
+              // 旧版本（分节结构）兼容：转成 MD
+              setMd(parsed.sections.map((s) => "## " + s.title + "\n\n" + s.content).join("\n\n"));
+            }
             setMessage(warning);
           } catch { setError("版本内容解析失败"); }
         }}

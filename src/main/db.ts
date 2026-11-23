@@ -39,6 +39,9 @@ function litRow(r: Row): LiteratureItem {
     refType: String(r.ref_type ?? "other") as LiteratureItem["refType"],
     region: String(r.region ?? "unknown") as LiteratureItem["region"],
     language: String(r.language ?? ""),
+    citedBy: Number(r.cited_by ?? 0),
+    keywords: String(r.keywords ?? ""),
+    journalRank: String(r.journal_rank ?? ""),
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
   };
@@ -256,6 +259,21 @@ export class ThesisDB {
       );
       CREATE INDEX IF NOT EXISTS idx_ps_project ON project_snapshots(project_id);
 
+      CREATE TABLE IF NOT EXISTS ai_jobs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        stage_key TEXT NOT NULL DEFAULT '',
+        kind TEXT NOT NULL DEFAULT '',
+        label TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'running',
+        progress INTEGER NOT NULL DEFAULT 0,
+        message TEXT NOT NULL DEFAULT '',
+        result_json TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_aijobs_project ON ai_jobs(project_id);
+
       CREATE TABLE IF NOT EXISTS ai_conversations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project_id TEXT NOT NULL,
@@ -304,6 +322,9 @@ export class ThesisDB {
     try { this.db.exec("ALTER TABLE literature_items ADD COLUMN ref_type TEXT NOT NULL DEFAULT 'other'"); } catch { /* 已存在 */ }
     try { this.db.exec("ALTER TABLE literature_items ADD COLUMN region TEXT NOT NULL DEFAULT 'unknown'"); } catch { /* 已存在 */ }
     try { this.db.exec("ALTER TABLE literature_items ADD COLUMN language TEXT NOT NULL DEFAULT ''"); } catch { /* 已存在 */ }
+    try { this.db.exec("ALTER TABLE literature_items ADD COLUMN cited_by INTEGER NOT NULL DEFAULT 0"); } catch { /* 已存在 */ }
+    try { this.db.exec("ALTER TABLE literature_items ADD COLUMN keywords TEXT NOT NULL DEFAULT ''"); } catch { /* 已存在 */ }
+    try { this.db.exec("ALTER TABLE literature_items ADD COLUMN journal_rank TEXT NOT NULL DEFAULT ''"); } catch { /* 已存在 */ }
   }
 
   /** projects 增加研究方法多选列（老库自动补列）。 */
@@ -572,9 +593,9 @@ export class ThesisDB {
     const id = randomUUID();
     const now = Date.now();
     this.db.prepare(
-      `INSERT INTO literature_items (id, project_id, title, authors, year, venue, doi, url, abstract, source, verified_status, verified_note, fulltext_status, pdf_name, preprint, ref_type, region, language, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, item.projectId, item.title, item.authors, item.year, item.venue, item.doi, item.url, item.abstract, item.source, item.verifiedStatus, item.verifiedNote, item.fulltextStatus, item.pdfName, item.preprint ? 1 : 0, item.refType ?? "other", item.region ?? "unknown", item.language ?? "", now, now);
+      `INSERT INTO literature_items (id, project_id, title, authors, year, venue, doi, url, abstract, source, verified_status, verified_note, fulltext_status, pdf_name, preprint, ref_type, region, language, cited_by, keywords, journal_rank, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, item.projectId, item.title, item.authors, item.year, item.venue, item.doi, item.url, item.abstract, item.source, item.verifiedStatus, item.verifiedNote, item.fulltextStatus, item.pdfName, item.preprint ? 1 : 0, item.refType ?? "other", item.region ?? "unknown", item.language ?? "", item.citedBy ?? 0, item.keywords ?? "", item.journalRank ?? "", now, now);
     return this.getLiterature(id) as LiteratureItem;
   }
 
@@ -583,13 +604,13 @@ export class ThesisDB {
     return row ? litRow(row) : null;
   }
 
-  updateLiterature(id: string, patch: Partial<Pick<LiteratureItem, "title" | "authors" | "year" | "venue" | "doi" | "url" | "abstract" | "verifiedStatus" | "verifiedNote" | "refType" | "region" | "language">>): void {
+  updateLiterature(id: string, patch: Partial<Pick<LiteratureItem, "title" | "authors" | "year" | "venue" | "doi" | "url" | "abstract" | "verifiedStatus" | "verifiedNote" | "refType" | "region" | "language" | "citedBy" | "keywords" | "journalRank">>): void {
     const current = this.getLiterature(id);
     if (!current) return;
     const next = { ...current, ...patch, updatedAt: Date.now() };
     this.db.prepare(
-      `UPDATE literature_items SET title=?, authors=?, year=?, venue=?, doi=?, url=?, abstract=?, verified_status=?, verified_note=?, ref_type=?, region=?, language=?, updated_at=? WHERE id=?`
-    ).run(next.title, next.authors, next.year, next.venue, next.doi, next.url, next.abstract, next.verifiedStatus, next.verifiedNote, next.refType, next.region, next.language ?? "", next.updatedAt, id);
+      `UPDATE literature_items SET title=?, authors=?, year=?, venue=?, doi=?, url=?, abstract=?, verified_status=?, verified_note=?, ref_type=?, region=?, language=?, cited_by=?, keywords=?, journal_rank=?, updated_at=? WHERE id=?`
+    ).run(next.title, next.authors, next.year, next.venue, next.doi, next.url, next.abstract, next.verifiedStatus, next.verifiedNote, next.refType, next.region, next.language ?? "", next.citedBy ?? 0, next.keywords ?? "", next.journalRank ?? "", next.updatedAt, id);
   }
 
   setLiteraturePdf(id: string, pdfName: string): void {
@@ -610,6 +631,44 @@ export class ThesisDB {
       claim: String(r.claim ?? ""),
       location: String(r.location ?? ""),
       createdAt: Number(r.created_at),
+    }));
+  }
+
+  insertAiJob(job: { id: string; projectId: string; stageKey: string; kind: string; label: string; status: string; progress: number; message: string; resultJson: string }): void {
+    const now = Date.now();
+    this.db.prepare(
+      `INSERT INTO ai_jobs (id, project_id, stage_key, kind, label, status, progress, message, result_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(job.id, job.projectId, job.stageKey, job.kind, job.label, job.status, job.progress, job.message, job.resultJson, now, now);
+  }
+
+  updateAiJob(id: string, patch: { status?: string; progress?: number; message?: string; resultJson?: string }): void {
+    const cur = this.db.prepare("SELECT * FROM ai_jobs WHERE id = ?").get(id) as unknown as Record<string, unknown> | undefined;
+    if (!cur) return;
+    const next = {
+      status: patch.status ?? String(cur.status),
+      progress: patch.progress ?? Number(cur.progress),
+      message: patch.message ?? String(cur.message),
+      resultJson: patch.resultJson ?? String(cur.result_json),
+    };
+    this.db.prepare("UPDATE ai_jobs SET status=?, progress=?, message=?, result_json=?, updated_at=? WHERE id=?")
+      .run(next.status, next.progress, next.message, next.resultJson, Date.now(), id);
+  }
+
+  listAiJobs(projectId: string, limit = 20): Array<{ id: string; projectId: string; stageKey: string; kind: string; label: string; status: string; progress: number; message: string; resultJson: string; createdAt: number; updatedAt: number }> {
+    const rows = this.db.prepare("SELECT * FROM ai_jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?").all(projectId, limit) as unknown as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      projectId: String(r.project_id),
+      stageKey: String(r.stage_key),
+      kind: String(r.kind),
+      label: String(r.label),
+      status: String(r.status),
+      progress: Number(r.progress),
+      message: String(r.message),
+      resultJson: String(r.result_json),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at),
     }));
   }
 

@@ -1,6 +1,7 @@
 import { fetch } from "undici";
 import { guessRegion, refTypeFromCrossrefType, type RefTypeKey, type RegionKey } from "../../shared/literature";
 import type { SearchOutcome } from "../../shared/literature";
+import { rankJournal } from "../../shared/journal-rank";
 
 const REAL_BASE = "https://api.crossref.org";
 
@@ -41,6 +42,7 @@ function workToItem(work: CrossrefWork, source: "crossref") {
     refType: refTypeFromCrossrefType(type),
     region: guessRegion(title.trim(), venue),
     language: String(work.language ?? ""),
+    journalRank: rankJournal(venue),
   };
 }
 

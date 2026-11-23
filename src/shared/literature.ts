@@ -1,4 +1,4 @@
-export type LiteratureSource = "crossref" | "openalex" | "arxiv" | "pubmed" | "manual" | "ris-import" | "manual-platform" | "ai-suggested";
+export type LiteratureSource = "crossref" | "openalex" | "arxiv" | "pubmed" | "hanspub" | "cnki" | "wanfang" | "vip" | "manual" | "ris-import" | "manual-platform" | "ai-suggested" | "ai-search";
 
 export type VerifiedStatus = "verified" | "unverified" | "conflict";
 
@@ -26,6 +26,12 @@ export interface LiteratureItem {
   region: RegionKey;
   /** 文献语言，与作者单位/出版地的国内外归属分别保存。 */
   language?: string;
+  /** 被引次数（真实来源提供；未取到时缺省） */
+  citedBy?: number;
+  /** 文献关键词（分号分隔；真实来源提供） */
+  keywords?: string;
+  /** 期刊等级标记（CSSCI/北大核心/SCI/SSCI/普通/未标定；内置清单比对，可更新） */
+  journalRank?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -62,8 +68,7 @@ export interface SearchOutcome {
 
 export interface AutoSearchOptions {
   total?: number; cn?: number; en?: number;
-  excludeDois?: string[]; excludeTitles?: string[]; preferredPlatforms?: string[];
-  openAccessOnly?: boolean; globalLibraries?: boolean;
+  excludeDois?: string[]; excludeTitles?: string[];
   /** 用户提供的英文概念（分号分隔），用于词典未覆盖的主题。 */
   englishKeywords?: string;
 }
@@ -79,7 +84,7 @@ export interface AutoSearchResult {
   ok: boolean; message: string; searchId: string; queryUsed: string[]; results: SearchCandidate[];
   related: SearchCandidate[]; diagnostics: SearchDiagnostic[]; warnings: string[]; stopReason: string;
   counts: { cnRequested: number; enRequested: number; cnFound: number; enFound: number };
-  cnNote: string; preferredLinks: Array<{ key: string; name: string; url: string }>;
+  cnNote: string;
   backgroundLinks: Array<{ name: string; url: string }>;
   cnJumpLinks: Array<{ name: string; url: string; query: string }>;
 }
@@ -96,10 +101,15 @@ export const LITERATURE_SOURCE_LABEL: Record<LiteratureSource, string> = {
   crossref: "Crossref",
   arxiv: "arXiv",
   pubmed: "PubMed",
+  hanspub: "汉斯出版社（OA）",
+  cnki: "中国知网",
+  wanfang: "万方数据",
+  vip: "维普网",
   manual: "手动录入",
   "ris-import": "RIS/BibTeX 导入",
   "manual-platform": "国内平台人工核验",
   "ai-suggested": "AI 建议（未核验）",
+  "ai-search": "AI 检索论文（多源）",
 };
 
 export const VERIFIED_STATUS_LABEL: Record<VerifiedStatus, string> = {
@@ -162,6 +172,7 @@ export const MAJOR_PLATFORM_GROUPS: Array<{ title: string; items: PlatformEntry[
       { key: "doaj", name: "DOAJ", tag: "OA 期刊目录 · 国外", searchTemplate: "https://doaj.org/search/articles?source=%s" },
       { key: "base", name: "BASE", tag: "免费 · 机构库 · 国外", searchTemplate: "https://www.base-search.net/Search/Results?lookfor=%s" },
       { key: "unpaywall", name: "Unpaywall", tag: "工具 · 找合法开放版", searchTemplate: null, note: "浏览器扩展/API，用于回溯付费论文的合法开放版本" },
+      { key: "hans", name: "汉斯出版社（OA）", tag: "免费全文 · OA · 境外出版商（中文刊为主）", searchTemplate: "https://www.hanspub.org/journal/PaperInformation.aspx?searchType=1&searchWord=%s" },
     ],
   },
   {
@@ -188,7 +199,6 @@ export const MAJOR_PLATFORM_GROUPS: Array<{ title: string; items: PlatformEntry[
       { key: "nstl", name: "国家科技图书文献中心 NSTL", tag: "免费/混合", searchTemplate: "https://www.nstl.gov.cn/search.html?word=%s" },
       { key: "chaoxing", name: "超星期刊", tag: "订阅", searchTemplate: "https://qikan.chaoxing.com/searchjour?sw=%s" },
       { key: "duxiu", name: "读秀学术搜索", tag: "订阅 · 图书发现", searchTemplate: "https://www.duxiu.com/search?channel=search&gt=&sw=%s" },
-      { key: "hans", name: "汉斯出版社（OA）", tag: "免费全文 · 质量需逐刊核验", searchTemplate: "https://www.hanspub.org/journal/PaperInformation.aspx?searchType=1&searchWord=%s" },
     ],
   },
   {
@@ -288,13 +298,20 @@ export const FORBIDDEN_SUBJECT_EXPANSIONS: Record<string, string[]> = {
   "社会临场感": ["临场感", "社会"],
 };
 
-/** 中文文献主检索源（跳转官网检索；合规：不爬取中文闭源平台，只提供元数据检索入口） */
+/** 中文文献主检索源（知网着重：校园网/VPN 环境直抓题录，抓取失败时降级为跳转官网检索） */
 export const CN_SEARCH_PLATFORMS: Array<{ key: string; name: string; searchTemplate: string | null; note: string }> = [
-  { key: "baidu-xueshu", name: "百度学术", searchTemplate: "https://xueshu.baidu.com/s?wd=%s", note: "中文文献发现入口（官方检索，需在浏览器完成）" },
-  { key: "cnki", name: "中国知网 CNKI", searchTemplate: "https://kns.cnki.net/kns8s/defaultresult/index?kw=%s", note: "中文期刊/硕博/会议最大库（订阅/混合）" },
+  { key: "cnki", name: "中国知网 CNKI（着重）", searchTemplate: "https://kns.cnki.net/kns8s/defaultresult/index?kw=%s", note: "中文期刊/硕博/会议最大库（订阅/混合）——主检索源" },
   { key: "wanfang", name: "万方数据", searchTemplate: "https://s.wanfangdata.com.cn/paper?q=%s", note: "中文期刊/学位/会议" },
   { key: "vip", name: "维普网", searchTemplate: "http://qikan.cqvip.com/Qikan/Search/Index?key=%s", note: "中文科技期刊" },
+  { key: "baidu-xueshu", name: "百度学术", searchTemplate: "https://xueshu.baidu.com/s?wd=%s", note: "中文文献发现入口（官方检索，需在浏览器完成）" },
   { key: "nssd", name: "国家哲学社会科学文献中心", searchTemplate: null, note: "免费中文社科开放文献（无稳定检索 URL，打开首页手动检索）" },
+];
+
+/** 境外数据源跳转（一律使用英文检索式；Google Scholar 有反爬、BASE 开放接口需注册密钥，均无开放接口） */
+export const FOREIGN_PLATFORMS: Array<{ key: string; name: string; searchTemplate: string | null; note: string }> = [
+  { key: "hans", name: "汉斯出版社（OA 官网检索）", searchTemplate: "https://www.hanspub.org/journal/PaperInformation.aspx?searchType=1&searchWord=%s", note: "论文已通过 Crossref（10.12677）真实取回；官网检索附英文检索式" },
+  { key: "google-scholar", name: "Google Scholar 谷歌学术", searchTemplate: "https://scholar.google.com/scholar?q=%s", note: "英文检索式跳转（需在官网完成人机验证）" },
+  { key: "base", name: "BASE 机构库", searchTemplate: "https://www.base-search.net/Search/Results?lookfor=%s", note: "英文检索式跳转（开放接口需注册密钥，官网检索免费）" },
 ];
 
 /** 中英学术术语硬词典（词典硬匹配 → 布尔检索式基底；模型只做补全与逻辑组合） */
