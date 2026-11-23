@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>论文工作台 Thesis Workbench · 本科毕业论文全流程 AI 辅助</title>
+<style>
+:root { --blue:#2f6fed; --ink:#17233b; --muted:#5c6b84; --bg:#f5f8ff; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--ink); background:var(--bg); line-height:1.7; }
+.wrap { max-width:960px; margin:0 auto; padding:0 20px; }
+header { background:linear-gradient(135deg,#1d4ed8,#2f6fed 60%,#5a8bff); color:#fff; padding:64px 0 56px; }
+h1 { font-size:34px; letter-spacing:1px; }
+header p { opacity:.92; margin-top:12px; font-size:16px; }
+.badges { margin-top:22px; }
+.badge { display:inline-block; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.35); border-radius:999px; padding:4px 14px; margin:0 8px 8px 0; font-size:13px; }
+main { padding:44px 0 64px; }
+section { background:#fff; border-radius:14px; padding:26px 30px; margin-bottom:22px; box-shadow:0 2px 14px rgba(23,35,59,.06); }
+h2 { font-size:22px; margin-bottom:14px; color:var(--blue); }
+h3 { font-size:16px; margin:14px 0 6px; }
+ul { padding-left:22px; }
+li { margin:5px 0; }
+.en { color:var(--muted); font-size:14px; margin-top:4px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; margin-top:14px; }
+.card { background:#f6f9ff; border:1px solid #e3ecff; border-radius:12px; padding:16px 18px; }
+.progress { display:flex; gap:10px; flex-wrap:wrap; }
+.pill { border-radius:10px; padding:6px 12px; font-size:13.5px; background:#f1f5ff; border:1px solid #dce7ff; }
+.pill.ok { background:#e8f9ef; border-color:#8fdcae; color:#14613b; }
+.pill.wip { background:#fff8e6; border-color:#f0dc9e; color:#7a5b12; }
+.pill.todo { background:#f1f4f8; border-color:#dde2ea; color:#5c6b84; }
+.cta { display:inline-block; margin-top:16px; background:var(--blue); color:#fff; text-decoration:none; border-radius:10px; padding:11px 26px; font-weight:600; }
+.cta.gh { background:#17233b; }
+table { border-collapse:collapse; width:100%; margin-top:10px; font-size:14px; }
+td,th { border:1px solid #e3ecff; padding:8px 12px; text-align:left; }
+th { background:#f1f6ff; }
+footer { text-align:center; color:var(--muted); font-size:13px; padding:20px 0 40px; }
+code { background:#eef3ff; border-radius:5px; padding:1px 6px; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>📚 论文工作台 · Thesis Workbench</h1>
+    <p>本科毕业论文全流程 AI 辅助桌面应用：选题 → 文献综述与证据管理 → 开题报告 → 数据统计 → 论文写作，一条主流程跑通。</p>
+    <p class="en">An all-in-one AI-assisted desktop app for the undergraduate thesis pipeline — from topic selection and evidence-based literature review to thesis proposal, data analysis and writing.</p>
+    <div class="badges">
+      <span class="badge">Electron 45</span><span class="badge">React 19</span><span class="badge">TypeScript</span>
+      <span class="badge">SQLite · 本地存储</span><span class="badge">83 单测 · 11 e2e 全绿</span><span class="badge">中英双语界面说明</span>
+    </div>
+  </div>
+</header>
+<main class="wrap">
+  <section>
+    <h2>亮点功能 · Highlights</h2>
+    <div class="grid">
+      <div class="card"><h3>🔍 AI 检索论文（防幻觉）</h3>第 0/1/2 阶段内容整理成 Markdown 发给 AI 生成检索计划 → 真实学术数据源检索（知网/汉斯出版社/OpenAlex/Crossref，Google Scholar/BASE 跳转）→ 池内重排（白名单校验，AI 只排序不编造）→ 可取消、后台继续、结果可恢复。</div>
+      <div class="card"><h3>📥 直聊 AI 结果回填</h3>粘贴豆包/DeepSeek/Kimi 的文献回复 → 自动解析（GB/T 7714/编号/DOI）→ 逐条真实源核验 → 去重入库；未命中/限流失败保留原始题录标「待核验」，零丢失不编造。实测 15/15 识别。</div>
+      <div class="card"><h3>📝 开题报告（学校模板架构）</h3>严格按《开题报告》表格架构：AI 只写两大块内容，参考文献与进度安排由程序按文献库/截止时间生成；MD 实时生成+预览+编辑；一键导出 Word（A4/页边距/字体/行距可配）。</div>
+      <div class="card"><h3>🧠 AI 任务后台化</h3>所有 AI 任务在主进程后台继续，切界面不中断；左列任务状态框实时进度；返回页面自动恢复结果；多线路模型配置 + 密钥系统级加密。</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>做到哪里 · Progress</h2>
+    <div class="progress">
+      <span class="pill ok">✅ 阶段 0–6 主流程可用</span>
+      <span class="pill ok">✅ AI 检索论文 / 取消 / 后台任务</span>
+      <span class="pill ok">✅ AI 结果回填 + 本地桥服务</span>
+      <span class="pill ok">✅ 开题报告模板化 + Word 导出</span>
+      <span class="pill ok">✅ 通用设置（模板/格式/文字大小）</span>
+      <span class="pill wip">🟡 浏览器扩展一键回填（开发中）</span>
+      <span class="pill todo">⬜ 阶段 B/C：知网降级提示 · 浏览器半自动通道</span>
+      <span class="pill todo">⬜ MCP / 浏览器操作代理（远期）</span>
+    </div>
+    <p class="en">The repository is actively maintained — see the README for the full checklist and roadmap.</p>
+  </section>
+
+  <section>
+    <h2>技术栈 · Tech Stack</h2>
+    <table>
+      <tr><th>类别</th><th>内容</th></tr>
+      <tr><td>框架</td><td>Electron 45 · React 19 · TypeScript · Vite 6 · tsup</td></tr>
+      <tr><td>存储</td><td>node:sqlite（WAL + 迁移）· safeStorage 密钥加密 · 全本地</td></tr>
+      <tr><td>AI</td><td>多服务商线路（4 种 API 风格）· ReAct 检索 · 池内重排防幻觉 · 思考等级</td></tr>
+      <tr><td>数据源</td><td>Crossref（polite pool）· OpenAlex · arXiv · PubMed · 汉斯出版社 · 知网（校园网直抓+降级）</td></tr>
+      <tr><td>测试</td><td>Vitest 83 单元测试 · Playwright Electron 11 端到端测试</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>下载与源码 · Get it</h2>
+    <p>本页为项目主页；桌面应用源码、构建方式与进度说明见 GitHub 仓库。数据全部保存在本机，无云端依赖。</p>
+    <p class="en">This is the project landing page. The desktop app source, build guide and roadmap live in the GitHub repository. All data stays local.</p>
+    <a class="cta gh" href="https://github.com/Solomon1022/thesis-workbench" target="_blank" rel="noopener">GitHub 仓库 · Repository</a>
+  </section>
+</main>
+<footer>论文工作台 Thesis Workbench · 个人学习与毕业设计用途 · 持续更新 · For personal study &amp; thesis use, actively maintained.</footer>
+</body>
+</html>
