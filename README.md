@@ -4,6 +4,8 @@
 
 > 适用对象：本科生（实证问卷类论文体验最佳）；数据全部本地存储，API 密钥用系统级加密，无云端依赖。
 
+**English summary:** *Thesis Workbench is an Electron desktop app that walks undergraduate students through the whole thesis pipeline — project setup, topic selection, literature review & evidence management (AI-planned search across real academic sources, anti-hallucination pool re-ranking, GB/T 7714 citations, AI result backfill with source verification), thesis proposal generation (strict school-template layout, program-generated references & schedule, Word export), data analysis, and writing. All data stays local (SQLite + safeStorage). Built with Electron 45 + React 19 + TypeScript, covered by 83 unit tests and 11 Playwright Electron e2e tests. Actively maintained — see the progress checklist below.*
+
 ## 功能总览
 
 ### 核心主流程（已可用）

@@ -3,6 +3,7 @@ import type { ProjectDetail } from "../../shared/types";
 import type { EvidenceCard, LiteratureItem, SearchLogEntry, SearchOutcome } from "../../shared/literature";
 import { CN_PLATFORMS, LITERATURE_SOURCE_LABEL, MAJOR_PLATFORM_GROUPS, REF_TYPES, REF_TYPE_LABEL, REF_TYPE_PRIORITY, REGION_LABEL, VERIFIED_STATUS_LABEL } from "../../shared/literature";
 import { parseBibTeX, parseRIS, type ParsedReference } from "../../shared/bibparse";
+import { toast } from "./Toast";
 
 
 const api = () => window.thesisWorkbench;
@@ -27,6 +28,12 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
   const projectId = detail.project.id;
   const [items, setItems] = useState<LiteratureItem[]>([]);
   const [log, setLog] = useState<SearchLogEntry[]>([]);
+  const [justSavedId, setJustSavedId] = useState("");
+  const markSaved = (id: string, title: string) => {
+    setJustSavedId(id);
+    toast("已保存到文献库", "Saved to library · " + title.slice(0, 40));
+    setTimeout(() => setJustSavedId(""), 3200);
+  };
   const [source, setSource] = useState("crossref");
   const [query, setQuery] = useState("");
   const [suggested, setSuggested] = useState<string[]>([]);
@@ -276,8 +283,14 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
     const a = api();
     if (!a) return;
     const r = await a.literatureSave(projectId, c, { note });
-    if (r.saved) { setMessage("已保存：" + (r.item?.title ?? "").slice(0, 40)); void refresh(); }
-    else setMessage(r.message);
+    if (r.saved) {
+      setMessage("已保存：" + (r.item?.title ?? "").slice(0, 40));
+      markSaved(r.item?.id ?? "", r.item?.title ?? "");
+      void refresh();
+    } else {
+      setMessage(r.message);
+      toast("未重复保存", "Already in library · 已存在相同文献", "info");
+    }
   };
 
   const saveManual = async () => {
@@ -303,7 +316,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         region: manualRegion,
       }, { manuallyVerified: manualVerify, note: manual.note.trim() });
       setMessage(r.message);
-      if (r.saved) { setManual({ citation: "", abstract: "", note: "" }); setManualVerify(false); void refresh(); }
+      if (r.saved) { setManual({ citation: "", abstract: "", note: "" }); setManualVerify(false); markSaved(r.item?.id ?? "", r.item?.title ?? ""); void refresh(); }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -325,7 +338,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
       source: "ris-import", preprint: false,
     }, {});
     setMessage(r.message);
-    if (r.saved) void refresh();
+    if (r.saved) { markSaved(r.item?.id ?? "", r.item?.title ?? ""); void refresh(); }
   };
 
   const attachPdf = async (id: string) => {
@@ -458,6 +471,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
       const r = await a.literatureImportAiText(projectId, aiImportText);
       if (r.ok) {
         setMessage(r.message);
+        toast("AI 结果已回填", "Imported · 已核验 " + r.verified + " 条 / 待核验 " + r.unverified + " 条");
         setAiImportText("");
         void refresh();
       } else {
@@ -547,7 +561,12 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
             <strong>导出第 0/1/2 阶段内容（MD）</strong>
             <button className="btn btn-sm btn-primary" onClick={() => void exportMd()}>导出 MD（发给 AI 找文献）</button>
           </div>
-          <p className="muted">建议：把导出的 MD 直接发送给 AI 平台（DeepSeek/ChatGPT 等），让 AI 按你的偏好查找适配文献；拿到标题或完整参考文献后，粘贴到下方「手动录入（参考文献引用 + 摘要）」即可精准导入——链接或参考文献给得准，查找就准。导出内容始终是第 0/1/2 阶段的最新内容，改完再导即可。</p>
+          <p className="muted">建议：把导出的 MD 直接发送给 AI 平台（DeepSeek/ChatGPT 等），让 AI 按你的偏好查找适配文献；拿到标题或完整参考文献后，粘贴到下方「AI 结果回填」即可批量导入——链接或参考文献给得准，查找就准。导出内容始终是第 0/1/2 阶段的最新内容，改完再导即可。</p>
+          <div className="md-prompt-hint">
+            <p className="md-prompt-line">💡 可以直接将 MD 文件和下面这句话一起发给 AI 查询，效果最优！！！o(*￣▽￣*)ブ</p>
+            <p className="md-prompt-quote">"根据md文件内容寻找相匹配的文献，输出形式只要：[序号/排序]＋文献引用格式＋论文摘要（没有或者无法直接获取摘要就提炼论文信息，或者外部介绍），注意不要加入其他内容和标注，文献之间要分开。"</p>
+            <p className="md-prompt-en">💡 Tip: send the MD file together with the quote above to the AI for the best results. "Find matching literature based on the MD content. Output ONLY: [number/rank] + citation format + abstract (or a distilled summary/external description if the abstract is unavailable). No extra text or annotations; separate each reference."</p>
+          </div>
           <div className="lit-search-row">
             <span className="muted">文献类型偏好：</span>
             {mdRefTypes.map((t) => (
@@ -816,7 +835,7 @@ export function LiteraturePanel({ detail }: { detail: ProjectDetail }) {
         ) : (
           <div className="lit-list">
             {items.map((lit) => (
-              <div key={lit.id} className="lit-item">
+              <div key={lit.id} className={"lit-item" + (lit.id === justSavedId ? " lit-item-new" : "")}>
                 <div className="lit-item-main">
                   <div className="lit-title">
                     {lit.title}

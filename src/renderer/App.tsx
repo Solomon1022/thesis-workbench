@@ -8,6 +8,7 @@ import { StageNav } from "./components/StageNav";
 import { StageWorkspace } from "./components/StageWorkspace";
 import { AiJobsPanel } from "./components/AiJobsPanel";
 import { GeneralSettingsView } from "./components/GeneralSettingsView";
+import { ToastHost, toast } from "./components/Toast";
 
 const api = () => window.thesisWorkbench;
 
@@ -66,6 +67,7 @@ export function App() {
       setWizardOpen(false);
       await refreshProjects();
       setDetail(d);
+      toast("项目已创建", "Project created · " + d.project.name);
       const start = d.stages.find((s) => s.status === "in_progress");
       setCurrentStage(start ? start.stageKey : null);
     } catch (e) {
@@ -212,6 +214,7 @@ export function App() {
       {wizardOpen && (
         <ProjectWizard busy={busy} onCancel={() => setWizardOpen(false)} onCreate={(input) => void handleCreate(input)} />
       )}
+      <ToastHost />
     </div>
   );
 }

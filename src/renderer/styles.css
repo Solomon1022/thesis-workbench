@@ -298,6 +298,25 @@ body {
 .kw-gen-box { min-height: 130px; }
 .kw-gen-box .kw-chips { align-content: flex-start; }
 
+/* MD 导出提示（蓝色标实） */
+.md-prompt-hint { border: 1px solid #2f6fed; background: #eaf1ff; border-radius: 8px; padding: 8px 12px; margin: 6px 0; }
+.md-prompt-line { color: #1d4ed8; font-weight: 700; margin: 0 0 4px; }
+.md-prompt-quote { color: #1d4ed8; font-weight: 600; background: #dbe7ff; border-radius: 6px; padding: 6px 10px; margin: 0 0 4px; line-height: 1.6; }
+.md-prompt-en { color: #3b63b8; font-size: 12px; margin: 0; }
+
+/* 全局 toast */
+.toast-host { position: fixed; right: 16px; bottom: 16px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+.toast { min-width: 220px; max-width: 340px; border-radius: 10px; padding: 10px 14px; box-shadow: 0 6px 24px rgba(15, 30, 60, 0.18); animation: toast-in 0.25s ease; }
+.toast-ok { background: #e8f9ef; border: 1px solid #8fdcae; color: #14613b; }
+.toast-info { background: #eef4ff; border: 1px solid #a9c6f5; color: #1d4ed8; }
+.toast-title { font-weight: 700; font-size: 13.5px; }
+.toast-sub { font-size: 12px; opacity: 0.85; margin-top: 2px; word-break: break-all; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* 新保存文献高亮 */
+.lit-item-new { animation: lit-flash 1.6s ease 2; }
+@keyframes lit-flash { 0% { background: #d8ecff; } 100% { background: transparent; } }
+
 /* 取消/警示按钮 */
 .btn-warn { background: #fff5f2; border-color: #f0b9ab; color: #b3402a; }
 .btn-warn:hover { background: #ffe9e2; }
